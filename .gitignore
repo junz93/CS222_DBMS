@@ -1,0 +1,11 @@
+# IntelliJ project files
+.DS_Store
+.idea/
+*.iml
+cmake-build-debug/
+*.o
+*.a
+*.out
+rbftest?
+rbftest??
+my_test.cpp

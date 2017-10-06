@@ -124,8 +124,6 @@ IMPORTANT, PLEASE READ: All methods below this comment (other than the construct
       const vector<string> &attributeNames, // a list of projected attributes
       RBFM_ScanIterator &rbfm_ScanIterator);
 
-public:
-
 protected:
   RecordBasedFileManager();
   ~RecordBasedFileManager();

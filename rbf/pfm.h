@@ -52,6 +52,9 @@ public:
 
 private:
     fstream file;
+
+    RC openFile(const string &fileName);
+    RC closeFile();
 };
 
 #endif

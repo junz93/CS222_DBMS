@@ -32,6 +32,7 @@ RC PagedFileManager::createFile(const string &fileName)
         // the file has already existed, return error code
         return -1;
     }
+
     // create a new file with one header page
     ofstream file(fileName, fstream::out | fstream::binary);
     byte header[PAGE_SIZE] = {0};
@@ -143,7 +144,7 @@ unsigned FileHandle::getNumberOfPages()
     auto curPos = file.tellg();
     auto numOfBytes = file.seekg(0, fstream::end).tellg();
     file.seekg(curPos);
-    return (numOfBytes < 0) ? 0 : numOfBytes/PAGE_SIZE - 1;
+    return (numOfBytes <= 0) ? 0 : numOfBytes/PAGE_SIZE - 1;
 }
 
 

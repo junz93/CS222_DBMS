@@ -1,7 +1,7 @@
 1. Basic information
 Student ID : 56323792
 Student Name : Jun Zhang
-OS (bit) :
+OS (bit) : Ubuntu 16.04 64-bit
 gcc version : 5.4.0
 
 

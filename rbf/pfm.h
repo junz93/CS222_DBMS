@@ -5,6 +5,7 @@ typedef unsigned PageNum;
 typedef int RC;
 typedef char byte;
 
+const byte FILE_IDEN = 0xaa;
 #define PAGE_SIZE 4096
 #include <string>
 #include <climits>

@@ -36,6 +36,7 @@ RC PagedFileManager::createFile(const string &fileName)
     // create a new file with one header page
     ofstream file(fileName, fstream::out | fstream::binary);
     byte header[PAGE_SIZE] = {0};
+    header[0] = FILE_IDEN;   // first byte of the header page is a fingerprint for identifying files created by this function
     file.write(header, PAGE_SIZE);
     return (file) ? 0 : (destroyFile(fileName), -1);
 }
@@ -79,13 +80,13 @@ RC FileHandle::openFile(const string &fileName) {
     }
     byte header[PAGE_SIZE];
     file.read(header, PAGE_SIZE);
-    if (!file) {
+    if (!file || header[0] != FILE_IDEN) {
         file.close();
         return -1;
     }
-    readPageCounter = *((unsigned*) header);
-    writePageCounter = *((unsigned*) (header + sizeof(unsigned)));
-    appendPageCounter = *((unsigned*) (header + 2*sizeof(unsigned)));
+    readPageCounter = *((unsigned*) (header + 1));
+    writePageCounter = *((unsigned*) (header + 1 + sizeof(unsigned)));
+    appendPageCounter = *((unsigned*) (header + 1 + 2*sizeof(unsigned)));
     return 0;
 }
 
@@ -98,9 +99,9 @@ RC FileHandle::closeFile() {
     file.seekg(0, fstream::beg);
     byte header[PAGE_SIZE];
     file.read(header, PAGE_SIZE);
-    memcpy(header, &readPageCounter, sizeof(unsigned));
-    memcpy(header + sizeof(unsigned), &writePageCounter, sizeof(unsigned));
-    memcpy(header + 2*sizeof(unsigned), &appendPageCounter, sizeof(unsigned));
+    memcpy(header + 1, &readPageCounter, sizeof(unsigned));
+    memcpy(header + 1 + sizeof(unsigned), &writePageCounter, sizeof(unsigned));
+    memcpy(header + 1 + 2*sizeof(unsigned), &appendPageCounter, sizeof(unsigned));
     file.seekp(0, fstream::beg);
     file.write(header, PAGE_SIZE);
     file.close();

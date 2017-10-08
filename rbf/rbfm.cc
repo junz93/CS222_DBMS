@@ -91,7 +91,6 @@ RC RecordBasedFileManager::insertRecord(FileHandle &fileHandle,
     if (pageNum >= numOfPages) {
         memset(page, 0, PAGE_SIZE);
         freeBytes = PAGE_SIZE - 4;
-//        *((uint16_t*) (page+PAGE_SIZE-2)) = freeBytes;
     }
 
     uint16_t numOfSlots = *((uint16_t*) (page+PAGE_SIZE-4));    // number of slots (including slots that don't contain a valid record)

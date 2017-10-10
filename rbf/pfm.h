@@ -52,6 +52,10 @@ public:
     RC collectCounterValues(unsigned &readPageCount, unsigned &writePageCount, unsigned &appendPageCount);  // Put the current counter values into variables
 
 private:
+    static const int RD_OFFSET = 1;
+    static const int WR_OFFSET = 1 + sizeof(unsigned);
+    static const int APP_OFFSET = 1 + 2*sizeof(unsigned);
+
     fstream file;
 
     RC openFile(const string &fileName);

@@ -1,23 +1,44 @@
 1. Basic information
 Student ID : 56323792
 Student Name : Jun Zhang
-OS (bit) : Ubuntu 16.04 64-bit
+OS (bit) : Ubuntu 16.04 (64-bit)
 gcc version : 5.4.0
 
 
 2. Internal Record Format
-- Show your record format design and describe how your design satisfies O(1) field access. If not, just mention that you haven't implemented this feature.
-- Describe how you store a VarChar field.
+The first 2 bytes store the number of fields in this record.
+The following ceil(numOfFields / 8) bytes store null flags for all the fields.
+The following 2*numOfFields bytes store the end offsets of all the fields.
+The following space stores the actual fields.
+
+O(1) field access:
+We can get the end offset of any field in O(1) time, because we have random access to it. In order to access field i,
+we get the end offset of field i-1 as the begin offset of field i. The length of field i is the difference between
+its end offset and begin offset. Since we can get the begin offset and length of field i in O(1) time, the access time
+is also O(1).
+
+Storage of Varchar field:
+The data of a varchar field is stored the same as other field types. The begin offset of a varchar field is the end offset
+of its previous neighbor, and the length can be calculated as the difference between the end offset and the begin offset
+of the varchar field.
 
 
 3. Page Format
-- Show your page format design
+The first part of a page stores the records.
+The second part of a page is the free space.
+The third (last) part of a page stores the slot directory.
+The last 2 bytes of the slot directory store the size of free space in this page.
+The second last 2 bytes of the slot directory store the number of slots in this page.
+The remainder of the slot directory stores the offset and length of each records in this page. Each offset or length uses 2 bytes.
 
 
 4. Implementation Detail
-- Other implementation details goes here.
+When creating a new file, we will always add a header page to it. The header page is used to store one byte of file identifier,
+and three counters of read, write and append operations respectively.
 
+When opening a file, the three counters are loaded and stored in the fileHandle object. When closing a file, the updated
+counters are written to the header page of the file.
 
-5. Other (optional)
-- Freely use this section to tell us about things that are related to the project 1, but not related to the other sections (optional)
-
+When inserting a record, we first calculate the length of space required to store the record in a page. Then we search for
+a page with enough free space to store the record, allocate a slot number for the new record, and update the slot directory.
+At last, we store the new record right after the current last record in the page.

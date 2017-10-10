@@ -70,7 +70,8 @@ FileHandle::~FileHandle()
 }
 
 
-RC FileHandle::openFile(const string &fileName) {
+RC FileHandle::openFile(const string &fileName)
+{
     if (file.is_open()) {
         return -1;
     }
@@ -84,28 +85,29 @@ RC FileHandle::openFile(const string &fileName) {
         file.close();
         return -1;
     }
-    readPageCounter = *((unsigned*) (header + 1));
-    writePageCounter = *((unsigned*) (header + 1 + sizeof(unsigned)));
-    appendPageCounter = *((unsigned*) (header + 1 + 2*sizeof(unsigned)));
+    readPageCounter = *((unsigned*) (header + RD_OFFSET));
+    writePageCounter = *((unsigned*) (header + WR_OFFSET));
+    appendPageCounter = *((unsigned*) (header + APP_OFFSET));
     return 0;
 }
 
 
-RC FileHandle::closeFile() {
+RC FileHandle::closeFile()
+{
     if (!file.is_open()) {
         return -1;
     }
+
     // update the header page
     file.seekg(0, fstream::beg);
     byte header[PAGE_SIZE];
     file.read(header, PAGE_SIZE);
-    memcpy(header + 1, &readPageCounter, sizeof(unsigned));
-    memcpy(header + 1 + sizeof(unsigned), &writePageCounter, sizeof(unsigned));
-    memcpy(header + 1 + 2*sizeof(unsigned), &appendPageCounter, sizeof(unsigned));
+    memcpy(header + RD_OFFSET, &readPageCounter, sizeof(unsigned));
+    memcpy(header + WR_OFFSET + sizeof(unsigned), &writePageCounter, sizeof(unsigned));
+    memcpy(header + APP_OFFSET, &appendPageCounter, sizeof(unsigned));
     file.seekp(0, fstream::beg);
     file.write(header, PAGE_SIZE);
     file.close();
-    // TODO: check success with 'is_open()' or 'fstream object itself'?
     return (!file.is_open()) ? 0 : -1;
 }
 
@@ -142,9 +144,9 @@ RC FileHandle::appendPage(const void *data)
 
 unsigned FileHandle::getNumberOfPages()
 {
-    auto curPos = file.tellg();
+    auto curPos = file.tellg();     // save the current position of file marker
     auto numOfBytes = file.seekg(0, fstream::end).tellg();
-    file.seekg(curPos);
+    file.seekg(curPos);     // restore the file marker
     return (numOfBytes <= 0) ? 0 : numOfBytes/PAGE_SIZE - 1;
 }
 

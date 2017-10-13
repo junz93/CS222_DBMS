@@ -142,6 +142,21 @@ private:
     static const unsigned NUM_OF_SLOTS_SZ = 2;      // size of space storing the number of slots in a page
     static const unsigned SLOT_OFFSET_SZ = 2;       // size of space storing the offset of a record in a page
     static const unsigned SLOT_LENGTH_SZ = 2;       // size of space storing the length of a record in a page
+
+    static const unsigned PAGE_NUM_SZ = sizeof(PageNum);
+    static const unsigned MAX_NUM_OF_ENTRIES = (PAGE_SIZE - PAGE_NUM_SZ) / 6;  // max number of entries in a directory page
+
+    uint16_t computeRecordLength(const vector<Attribute> &recordDescriptor, const void *data);
+
+    // Three cases for this function:
+    // 1) if there is a free page, set pageNum, freeBytes, headerNum and entryNum normally
+    // 2) if there is no free page, but there is a free header page, set pageNum to numOfPages, freeBytes to initial value,
+    //    and set headerNum and entryNum normally
+    // 3) if there is neither free page nor free header page, set pageNum to numOfPages+1, freeBytes to initial value,
+    //    headerNum to numOfPages, and entryNum to 0
+    RC seekFreePage(FileHandle &fileHandle, uint16_t recordLength, byte *header, PageNum &headerNum, unsigned &entryNum, PageNum &pageNum, uint16_t &freeBytes);
+
+    RC appendRecord(byte *page, uint16_t recordOffset, const vector<Attribute> &recordDescriptor, const void *data);
 };
 
 #endif

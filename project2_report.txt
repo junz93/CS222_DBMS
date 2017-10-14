@@ -22,6 +22,17 @@ gcc version :
 - Show your page format design.
 - Describe how you deal with an update and delete.
 
+Slot directory design:
+1) If record length == 0, this record has been deleted.
+2) If record offset >= PAGE_SIZE, this record has been moved to another page (due to the update operation).
+
+Delete operation:
+1) Set record length to 0 to indicate that this record is deleted.
+2) If record offset < PAGE_SIZE, shift left to remove this record, so that we always keep the free space in the middle part of this page.
+3) If record offset >= PAGE_SIZE, find the actual page containing this record, and shift left to remove this record.
+   Also, shift left to remove the tombstone (pointer) of this record in the original page.
+4) Update the free space in the slot directory of related pages (original and and actual page)
+
 
 5. File Format
 - Show your file format design

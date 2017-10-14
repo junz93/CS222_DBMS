@@ -17,6 +17,15 @@ gcc version :
 - Describe how you store a VarChar field.
 - Describe how you deal with an update and delete.
 
+Update operation:
+When the updated record cannot fit into the original page, we move it to another page with enough free space, and leave a
+tombstone (pointer) in the original page. The pointer consists of two parts. The first part uses 4 bytes to store the actual
+page number, and the second part uses 2 bytes to store the record offset in the actual page. Also, in this case the record offset
+in the slot directory of the original page becomes the offset of the pointer. In order to distinguish this special case
+from the ordinary one, we set this offset to PAGE_SIZE + (offset of pointer).
+Note: when moving a record to another page, we only store the updated record data in the actual page, and store the offset
+and length of the updated record in the original page. Therefore, there is no offset and length for this record in the
+slot directory of the actual page.
 
 4. Page Format
 - Show your page format design.

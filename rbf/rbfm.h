@@ -121,12 +121,12 @@ IMPORTANT, PLEASE READ: All methods below this comment (other than the construct
 
     // Scan returns an iterator to allow the caller to go through the results one by one.
     RC scan(FileHandle &fileHandle,
-      const vector<Attribute> &recordDescriptor,
-      const string &conditionAttribute,
-      const CompOp compOp,                  // comparision type such as "<" and "="
-      const void *value,                    // used in the comparison
-      const vector<string> &attributeNames, // a list of projected attributes
-      RBFM_ScanIterator &rbfm_ScanIterator);
+            const vector<Attribute> &recordDescriptor,
+            const string &conditionAttribute,
+            const CompOp compOp,                  // comparision type such as "<" and "="
+            const void *value,                    // used in the comparison
+            const vector<string> &attributeNames, // a list of projected attributes
+            RBFM_ScanIterator &rbfm_ScanIterator);
 
 protected:
     RecordBasedFileManager();

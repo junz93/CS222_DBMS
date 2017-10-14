@@ -87,14 +87,18 @@ RC RecordBasedFileManager::insertRecord(FileHandle &fileHandle,
     rid.pageNum = pageNum;
     uint16_t slotNum = 1;
     for (; slotNum <= numOfSlots; ++slotNum) {
-        if (*((uint16_t*) (page + PAGE_SIZE - FREE_SPACE_SZ - NUM_OF_SLOTS_SZ - slotNum*(SLOT_OFFSET_SZ + SLOT_LENGTH_SZ) + 2)) == 0) {
+        uint16_t sOffset = *((uint16_t*) (page
+                                          + PAGE_SIZE
+                                          - FREE_SPACE_SZ - NUM_OF_SLOTS_SZ
+                                          - slotNum*(SLOT_OFFSET_SZ + SLOT_LENGTH_SZ)));
+        if (sOffset == PAGE_SIZE) {
             break;
         }
     }
     rid.slotNum = slotNum;
     *((uint16_t*) (page + PAGE_SIZE - FREE_SPACE_SZ - NUM_OF_SLOTS_SZ - slotNum*(SLOT_OFFSET_SZ + SLOT_LENGTH_SZ)))
             = recordOffset;
-    *((uint16_t*) (page + PAGE_SIZE - FREE_SPACE_SZ - NUM_OF_SLOTS_SZ - slotNum*(SLOT_OFFSET_SZ + SLOT_LENGTH_SZ) + 2))
+    *((uint16_t*) (page + PAGE_SIZE - FREE_SPACE_SZ - NUM_OF_SLOTS_SZ - slotNum*(SLOT_OFFSET_SZ + SLOT_LENGTH_SZ) + SLOT_OFFSET_SZ))
             = recordLength;
 
     // update number of free space and number of slots in slot directory and page directory
@@ -135,19 +139,15 @@ RC RecordBasedFileManager::readRecord(FileHandle &fileHandle,
 {
     byte page[PAGE_SIZE];
     fileHandle.readPage(rid.pageNum, page);
-    uint16_t recordLength = *((uint16_t*) (page
-                                           + PAGE_SIZE
-                                           - FREE_SPACE_SZ - NUM_OF_SLOTS_SZ
-                                           - rid.slotNum*(SLOT_OFFSET_SZ + SLOT_LENGTH_SZ) + 2));
-    if (recordLength == 0) {
-        // the record in this slot is invalid (deleted)
-        return -1;
-    }
-
     uint16_t recordOffset = *((uint16_t*) (page
                                            + PAGE_SIZE
                                            - FREE_SPACE_SZ - NUM_OF_SLOTS_SZ
                                            - rid.slotNum*(SLOT_OFFSET_SZ + SLOT_LENGTH_SZ)));
+    if (recordOffset == PAGE_SIZE) {
+        // the record in this slot is invalid (deleted)
+        return -1;
+    }
+
     auto numOfFields = recordDescriptor.size();
 
     // copy the null flags from page to record data in memory
@@ -271,64 +271,6 @@ uint16_t RecordBasedFileManager::computeRecordLength(const vector<Attribute> &re
     return recordLength;
 }
 
-RC RecordBasedFileManager::appendRecord(byte *page,
-                                        uint16_t recordOffset,
-                                        const vector<Attribute> &recordDescriptor,
-                                        const void *data)
-{
-    auto numOfFields = recordDescriptor.size();
-    // write the number of fields of the new record to page
-    *((uint16_t*) (page + recordOffset)) = numOfFields;
-
-    // copy the null flags from record data in memory to page
-    memcpy(page + recordOffset + NUM_OF_FIELDS_SZ, data, ceil(numOfFields / 8.0));
-
-    // pointers to page data read from disk
-    byte *pOffsetP = page + recordOffset + NUM_OF_FIELDS_SZ + (int) ceil(numOfFields / 8.0);   // pointer to field offset
-    byte *pFieldP = pOffsetP + numOfFields*FIELD_OFFSET_SZ;     // pointer to actual field data
-    uint16_t fieldBegin = 0;    // begin offset of a field (relative to the start position of actual field data)
-
-    // pointers to record data in memory
-    const byte *pFlag = (const byte*) data;
-    const byte *pData = pFlag + (int) ceil(recordDescriptor.size() / 8.0);
-    uint8_t nullFlag = 0x80;
-
-    for (const Attribute &attr : recordDescriptor) {
-        if (*pFlag & nullFlag) {
-            // this field is NULL
-            *((uint16_t*) pOffsetP) = fieldBegin;
-        } else {
-            switch (attr.type) {
-                case TypeInt:
-                case TypeReal:
-                    *((uint16_t*) pOffsetP) = (fieldBegin += attr.length);
-                    memcpy(pFieldP, pData, attr.length);
-                    pFieldP += attr.length;
-                    pData += attr.length;
-                    break;
-                case TypeVarChar:
-                    uint32_t length = *((const uint32_t*) pData);
-                    pData += 4;
-                    *((uint16_t*) pOffsetP) = (fieldBegin += length);
-                    memcpy(pFieldP, pData, length);
-                    pFieldP += length;
-                    pData += length;
-                    break;
-            }
-        }
-
-        pOffsetP += 2;
-        if (nullFlag == 0x01) {
-            nullFlag = 0x80;
-            ++pFlag;
-        } else {
-            nullFlag = nullFlag >> 1;
-        }
-    }
-
-    return 0;
-}
-
 RC RecordBasedFileManager::seekFreePage(FileHandle &fileHandle,
                                         uint16_t recordLength,
                                         byte *header,
@@ -388,4 +330,84 @@ RC RecordBasedFileManager::seekFreePage(FileHandle &fileHandle,
         // initialize freeBytes for new record page
         freeBytes = PAGE_SIZE - FREE_SPACE_SZ - NUM_OF_SLOTS_SZ;
     }
+
+    return 0;
+}
+
+RC RecordBasedFileManager::appendRecord(byte *page,
+                                        uint16_t recordOffset,
+                                        const vector<Attribute> &recordDescriptor,
+                                        const void *data)
+{
+    auto numOfFields = recordDescriptor.size();
+    // write the number of fields of the new record to page
+    *((uint16_t*) (page + recordOffset)) = numOfFields;
+
+    // copy the null flags from record data in memory to page
+    memcpy(page + recordOffset + NUM_OF_FIELDS_SZ, data, ceil(numOfFields / 8.0));
+
+    // pointers to page data read from disk
+    byte *pOffsetP = page + recordOffset + NUM_OF_FIELDS_SZ + (int) ceil(numOfFields / 8.0);   // pointer to field offset
+    byte *pFieldP = pOffsetP + numOfFields*FIELD_OFFSET_SZ;     // pointer to actual field data
+    uint16_t fieldBegin = 0;    // begin offset of a field (relative to the start position of actual field data)
+
+    // pointers to record data in memory
+    const byte *pFlag = (const byte*) data;
+    const byte *pData = pFlag + (int) ceil(recordDescriptor.size() / 8.0);
+    uint8_t nullFlag = 0x80;
+
+    for (const Attribute &attr : recordDescriptor) {
+        if (*pFlag & nullFlag) {
+            // this field is NULL
+            *((uint16_t*) pOffsetP) = fieldBegin;
+        } else {
+            switch (attr.type) {
+                case TypeInt:
+                case TypeReal:
+                    *((uint16_t*) pOffsetP) = (fieldBegin += attr.length);
+                    memcpy(pFieldP, pData, attr.length);
+                    pFieldP += attr.length;
+                    pData += attr.length;
+                    break;
+                case TypeVarChar:
+                    uint32_t length = *((const uint32_t*) pData);
+                    pData += 4;
+                    *((uint16_t*) pOffsetP) = (fieldBegin += length);
+                    memcpy(pFieldP, pData, length);
+                    pFieldP += length;
+                    pData += length;
+                    break;
+            }
+        }
+
+        pOffsetP += 2;
+        if (nullFlag == 0x01) {
+            nullFlag = 0x80;
+            ++pFlag;
+        } else {
+            nullFlag = nullFlag >> 1;
+        }
+    }
+
+    return 0;
+}
+
+RC RecordBasedFileManager::updateRecord(FileHandle &fileHandle,
+                                        const vector<Attribute> &recordDescriptor,
+                                        const void *data,
+                                        const RID &rid)
+{
+
+}
+
+
+RC RecordBasedFileManager::scan(FileHandle &fileHandle,
+                                const vector<Attribute> &recordDescriptor,
+                                const string &conditionAttribute,
+                                const CompOp compOp,
+                                const void *value,
+                                const vector<string> &attributeNames,
+                                RBFM_ScanIterator &rbfm_ScanIterator)
+{
+
 }

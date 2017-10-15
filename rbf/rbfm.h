@@ -162,7 +162,7 @@ private:
 
     uint16_t getFreeBytes(const byte *page)
     {
-        return *((uint16_t*) (page + PAGE_SIZE - FREE_SPACE_SZ);
+        return *((uint16_t*) (page + PAGE_SIZE - FREE_SPACE_SZ));
     }
 
     uint16_t getNumOfSlots(const byte *page)

@@ -27,6 +27,7 @@ Note: when moving a record to another page, we only store the updated record dat
 and length of the updated record in the original page. Therefore, there is no offset and length for this record in the
 slot directory of the actual page.
 
+
 4. Page Format
 - Show your page format design.
 - Describe how you deal with an update and delete.

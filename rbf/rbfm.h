@@ -148,15 +148,16 @@ private:
 
     uint16_t computeRecordLength(const vector<Attribute> &recordDescriptor, const void *data);
 
-    // Three cases for this function:
-    // 1) if there is a free page, set pageNum, freeBytes, headerNum and entryNum normally
-    // 2) if there is no free page, but there is a free header page, set pageNum to numOfPages, freeBytes to initial value,
-    //    and set headerNum and entryNum normally
-    // 3) if there is neither free page nor free header page, set pageNum to numOfPages+1, freeBytes to initial value,
-    //    headerNum to numOfPages, and entryNum to 0
-    RC seekFreePage(FileHandle &fileHandle, uint16_t recordLength, byte *header, PageNum &headerNum, unsigned &entryNum, PageNum &pageNum, uint16_t &freeBytes);
+    // Two cases for this function:
+    // 1) if there is a free page, set pageNum and freeBytes normally
+    // 2) if there is no free page, set pageNum to the page number of a new page (>= numOfPages), and freeBytes to initial value,
+    RC seekFreePage(FileHandle &fileHandle, uint16_t recordLength, PageNum &pageNum, uint16_t &freeBytes);
 
-    RC appendRecord(byte *page, uint16_t recordOffset, const vector<Attribute> &recordDescriptor, const void *data);
+    RC writeRecord(byte *page, uint16_t recordOffset, const vector<Attribute> &recordDescriptor, const void *data);
+
+    void updatePageDirectory(byte *header, unsigned entryNum, PageNum pageNum, uint16_t freeBytes);
+
+    void updateFreeSpace(FileHandle &fileHandle, byte *page, PageNum pageNum, uint16_t freeBytes);
 };
 
 #endif

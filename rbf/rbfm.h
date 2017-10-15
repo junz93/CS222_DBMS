@@ -150,7 +150,8 @@ private:
 
     // Two cases for this function:
     // 1) if there is a free page, set pageNum and freeBytes normally
-    // 2) if there is no free page, set pageNum to the page number of a new page (>= numOfPages), and freeBytes to initial value,
+    // 2) if there is no free page, set pageNum to the page number of the next added page (>= current number of pages), and freeBytes to the initial value,
+    // Note: when there is no free directory header page, this function will add a new one automatically
     RC seekFreePage(FileHandle &fileHandle, uint16_t recordLength, PageNum &pageNum, uint16_t &freeBytes);
 
     RC writeRecord(byte *page, uint16_t recordOffset, const vector<Attribute> &recordDescriptor, const void *data);
@@ -158,6 +159,58 @@ private:
     void updatePageDirectory(byte *header, unsigned entryNum, PageNum pageNum, uint16_t freeBytes);
 
     void updateFreeSpace(FileHandle &fileHandle, byte *page, PageNum pageNum, uint16_t freeBytes);
+
+    uint16_t getFreeBytes(const byte *page)
+    {
+        return *((uint16_t*) (page + PAGE_SIZE - FREE_SPACE_SZ);
+    }
+
+    uint16_t getNumOfSlots(const byte *page)
+    {
+        return *((uint16_t*) (page + PAGE_SIZE - FREE_SPACE_SZ - NUM_OF_SLOTS_SZ));
+    }
+
+    void setNumOfSlots(byte *page, uint16_t numOfSlots)
+    {
+        *((uint16_t*) (page + PAGE_SIZE - FREE_SPACE_SZ - NUM_OF_SLOTS_SZ)) = numOfSlots;
+    }
+
+    uint16_t getRecordOffset(const byte *page, uint16_t slotNum)
+    {
+        return *((uint16_t*) (page
+                              + PAGE_SIZE
+                              - FREE_SPACE_SZ - NUM_OF_SLOTS_SZ
+                              - slotNum*(SLOT_OFFSET_SZ + SLOT_LENGTH_SZ)));
+    }
+
+    void setRecordOffset(byte *page, uint16_t slotNum, uint16_t recordOffset)
+    {
+        *((uint16_t*) (page
+                       + PAGE_SIZE
+                       - FREE_SPACE_SZ
+                       - NUM_OF_SLOTS_SZ
+                       - slotNum*(SLOT_OFFSET_SZ + SLOT_LENGTH_SZ)))
+                = recordOffset;
+    }
+
+    uint16_t getRecordLength(const byte *page, uint16_t slotNum)
+    {
+        return *((uint16_t*) (page
+                              + PAGE_SIZE
+                              - FREE_SPACE_SZ - NUM_OF_SLOTS_SZ
+                              - slotNum*(SLOT_OFFSET_SZ + SLOT_LENGTH_SZ)
+                              + SLOT_OFFSET_SZ));
+    }
+
+    void setRecordLength(byte *page, uint16_t slotNum, uint16_t recordLength)
+    {
+        *((uint16_t*) (page
+                       + PAGE_SIZE
+                       - FREE_SPACE_SZ - NUM_OF_SLOTS_SZ
+                       - slotNum*(SLOT_OFFSET_SZ + SLOT_LENGTH_SZ)
+                       + SLOT_OFFSET_SZ))
+                = recordLength;
+    }
 };
 
 #endif

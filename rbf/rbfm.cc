@@ -56,12 +56,16 @@ RC RecordBasedFileManager::insertRecord(FileHandle &fileHandle,
 
     byte page[PAGE_SIZE] = {0};
     if (pageNum >= numOfPages) {
+        // === there is no free page, so we have to append a new page ===
+
+        // initialize the free space for a new page
         freeBytes = PAGE_SIZE - FREE_SPACE_SZ - NUM_OF_SLOTS_SZ;
     } else {
+        // read the free page from disk
         fileHandle.readPage(pageNum, page);
     }
 
-    uint16_t numOfSlots = *((uint16_t*) (page + PAGE_SIZE - FREE_SPACE_SZ - NUM_OF_SLOTS_SZ));    // number of slots (including slots that don't contain a valid record)
+    uint16_t numOfSlots = getNumOfSlots(page);    // number of slots (including slots that don't contain a valid record)
     uint16_t recordOffset = PAGE_SIZE
                             - freeBytes
                             - FREE_SPACE_SZ
@@ -70,33 +74,25 @@ RC RecordBasedFileManager::insertRecord(FileHandle &fileHandle,
 
     // add offset and length info of the new record to slot directory in the page
     rid.pageNum = pageNum;
-    uint16_t slotNum = 1;
+    uint16_t slotNum = 1;   // slot number starts from 1 (not from 0)
     for (; slotNum <= numOfSlots; ++slotNum) {
-        uint16_t sLength = *((uint16_t*) (page
-                                          + PAGE_SIZE
-                                          - FREE_SPACE_SZ - NUM_OF_SLOTS_SZ
-                                          - slotNum*(SLOT_OFFSET_SZ + SLOT_LENGTH_SZ)
-                                          + SLOT_OFFSET_SZ));
+        uint16_t sLength = getRecordLength(page, slotNum);
         if (sLength == 0) {
             break;
         }
     }
     rid.slotNum = slotNum;
-    *((uint16_t*) (page + PAGE_SIZE - FREE_SPACE_SZ - NUM_OF_SLOTS_SZ - slotNum*(SLOT_OFFSET_SZ + SLOT_LENGTH_SZ)))
-            = recordOffset;
-    *((uint16_t*) (page + PAGE_SIZE - FREE_SPACE_SZ - NUM_OF_SLOTS_SZ - slotNum*(SLOT_OFFSET_SZ + SLOT_LENGTH_SZ) + SLOT_OFFSET_SZ))
-            = recordLength;
+    setRecordOffset(page, slotNum, recordOffset);
+    setRecordLength(page, slotNum, recordLength);
 
     // update number of free space and number of slots in slot directory and directory header page
     if (slotNum > numOfSlots) {
         freeBytes -= recordLength + SLOT_OFFSET_SZ + SLOT_LENGTH_SZ;
-        numOfSlots += 1;
+        setNumOfSlots(page, numOfSlots + 1);
     } else {
         freeBytes -= recordLength;
     }
     updateFreeSpace(fileHandle, page, pageNum, freeBytes);
-    *((uint16_t*) (page + PAGE_SIZE - FREE_SPACE_SZ - NUM_OF_SLOTS_SZ)) = numOfSlots;
-//    updatePageDirectory(header, entryNum, pageNum, freeBytes);
 
     // write the new record to page
     writeRecord(page, recordOffset, recordDescriptor, data);
@@ -118,32 +114,24 @@ RC RecordBasedFileManager::readRecord(FileHandle &fileHandle,
 {
     byte page[PAGE_SIZE];
     fileHandle.readPage(rid.pageNum, page);
-    uint16_t recordLength = *((uint16_t*) (page
-                                           + PAGE_SIZE
-                                           - FREE_SPACE_SZ - NUM_OF_SLOTS_SZ
-                                           - rid.slotNum*(SLOT_OFFSET_SZ + SLOT_LENGTH_SZ)
-                                           + SLOT_OFFSET_SZ));
+    uint16_t recordLength = getRecordLength(page, rid.slotNum);
     if (recordLength == 0) {
         // the record in this slot is invalid (deleted)
         return -1;
     }
 
-    uint16_t recordOffset = *((uint16_t*) (page
-                                           + PAGE_SIZE
-                                           - FREE_SPACE_SZ - NUM_OF_SLOTS_SZ
-                                           - rid.slotNum*(SLOT_OFFSET_SZ + SLOT_LENGTH_SZ)));
-
+    uint16_t recordOffset = getRecordOffset(page, rid.slotNum);
     auto numOfFields = recordDescriptor.size();
 
-    // copy the null flags from page to record data in memory
+    // copy the null flags from page to record data returned to caller
     memcpy(data, page + recordOffset + NUM_OF_FIELDS_SZ, (size_t) ceil(numOfFields / 8.0));
 
-    // pointers to page data read from disk
+    // pointers to page data
     const byte *pOffsetP = page + recordOffset + NUM_OF_FIELDS_SZ + (int) ceil(numOfFields / 8.0);
     const byte *pFieldP = pOffsetP + numOfFields * FIELD_OFFSET_SZ;
     uint16_t fieldBegin = 0;    // begin offset of a field (relative to the start position of fields)
 
-    // pointers to record data in memory
+    // pointers to record data that is returned to caller
     byte *pFlag = (byte*) data;
     byte *pData = pFlag + (int) ceil(numOfFields / 8.0);
     uint8_t nullFlag = 0x80;
@@ -231,31 +219,22 @@ RC RecordBasedFileManager::updateRecord(FileHandle &fileHandle,
     fileHandle.readPage(pageNum, page);
 
     // length of the old record
-    uint16_t recordLength = *((uint16_t*) (page
-                                           + PAGE_SIZE
-                                           - FREE_SPACE_SZ - NUM_OF_SLOTS_SZ
-                                           - slotNum*(SLOT_OFFSET_SZ + SLOT_LENGTH_SZ)
-                                           + SLOT_OFFSET_SZ));
+    uint16_t recordLength = getRecordLength(page, slotNum);
     if (recordLength == 0) {
         // this record has been deleted and should not be updated
         return -1;
     }
 
     // offset of the old record
-    uint16_t recordOffset = *((uint16_t*) (page
-                                           + PAGE_SIZE
-                                           - FREE_SPACE_SZ - NUM_OF_SLOTS_SZ
-                                           - slotNum*(SLOT_OFFSET_SZ + SLOT_LENGTH_SZ)));
+    uint16_t recordOffset = getRecordLength(page, slotNum);
 
     // length of the updated record
     uint16_t newRecordLength = computeRecordLength(recordDescriptor, data);
 
     // update the length of record in the original page
-    *((uint16_t*) (page
-                   + PAGE_SIZE
-                   - FREE_SPACE_SZ - NUM_OF_SLOTS_SZ
-                   - slotNum*(SLOT_OFFSET_SZ + SLOT_LENGTH_SZ)
-                   + SLOT_OFFSET_SZ)) = newRecordLength;
+    if (recordLength != newRecordLength) {
+        setRecordLength(page, slotNum, newRecordLength);
+    }
 
     if (recordOffset >= PAGE_SIZE) {
         // === this record has been moved to another page (not in the original page) ===
@@ -266,42 +245,43 @@ RC RecordBasedFileManager::updateRecord(FileHandle &fileHandle,
         uint16_t actualRecordOffset = *((uint16_t*) (page + recordOffset - PAGE_SIZE + sizeof(PageNum)));
         byte actualPage[PAGE_SIZE];
         fileHandle.readPage(actualPageNum, actualPage);
-        uint16_t freeBytes = *((uint16_t*) (actualPage + PAGE_SIZE - FREE_SPACE_SZ));
+        uint16_t freeBytes = getFreeBytes(page);
 
         if (freeBytes + recordLength >= newRecordLength) {
             // === update the record in the actual page ===
 
             if (recordLength != newRecordLength) {
+                fileHandle.writePage(pageNum, page);
                 freeBytes = freeBytes + recordLength - newRecordLength;
-                *((uint16_t *) (actualPage + PAGE_SIZE - FREE_SPACE_SZ)) = freeBytes;
-                byte header[PAGE_SIZE];
-                PageNum headerNum = actualPageNum / (MAX_NUM_OF_ENTRIES + 1);
-                unsigned entryNum = actualPageNum % (MAX_NUM_OF_ENTRIES + 1);
-                fileHandle.readPage(headerNum, header);
-                updatePageDirectory(header, entryNum, actualPageNum, freeBytes);
-
-                uint16_t numOfSlots = *((uint16_t *) (actualPage + PAGE_SIZE - FREE_SPACE_SZ - NUM_OF_SLOTS_SZ));
+                updateFreeSpace(fileHandle, actualPage, actualPageNum, freeBytes);
+                uint16_t numOfSlots = getNumOfSlots(actualPage);
                 unsigned numOfShift = PAGE_SIZE
                                       - freeBytes
                                       - FREE_SPACE_SZ - NUM_OF_SLOTS_SZ
-                                      - numOfSlots * (SLOT_OFFSET_SZ + SLOT_LENGTH_SZ)
+                                      - numOfSlots*(SLOT_OFFSET_SZ + SLOT_LENGTH_SZ)
                                       - actualRecordOffset
                                       - recordLength;
                 // shift right to make room for the updated record
                 memmove(actualPage + actualRecordOffset + newRecordLength,
                         actualPage + actualRecordOffset + recordLength,
                         numOfShift);
+
+                // update offset of the records after the updated record
+                for (uint16_t slotNum = 1; slotNum <= numOfSlots; ++slotNum) {
+                    uint16_t offset = getRecordOffset(actualPage, slotNum);
+                    if (offset > actualRecordOffset) {
+                        setRecordOffset(actualPage, slotNum, offset + newRecordLength - recordLength);
+                    }
+                }
             }
 
             writeRecord(actualPage, actualRecordOffset, recordDescriptor, data);
-
             fileHandle.writePage(actualPageNum, actualPage);
-            fileHandle.writePage(pageNum, page);
         } else {
             // === move the updated record to another page with enough space ===
 
             *((uint16_t*) (actualPage + PAGE_SIZE - FREE_SPACE_SZ)) = freeBytes + recordLength;
-            uint16_t numOfSlots = *((uint16_t*) (actualPage + PAGE_SIZE - FREE_SPACE_SZ - NUM_OF_SLOTS_SZ));
+            uint16_t numOfSlots = getNumOfSlots(actualPage);
             unsigned numOfShift = PAGE_SIZE
                                   -freeBytes
                                   -FREE_SPACE_SZ-NUM_OF_SLOTS_SZ
@@ -313,58 +293,49 @@ RC RecordBasedFileManager::updateRecord(FileHandle &fileHandle,
             memmove(actualPage + actualRecordOffset,
                     actualPage + actualRecordOffset + recordLength,
                     numOfShift);
+            for (uint16_t slotNum = 1; slotNum <= numOfSlots; ++slotNum) {
+                uint16_t offset = getRecordOffset(actualPage, slotNum);
+                if (offset > actualRecordOffset) {
+                    setRecordOffset(actualPage, slotNum, offset + newRecordLength - recordLength);
+                }
+            }
+
             fileHandle.writePage(actualPageNum, actualPage);
 
             auto numOfPages = fileHandle.getNumberOfPages();
-            PageNum headerNum;
-            unsigned entryNum;
-            byte header[PAGE_SIZE];
-//            seekFreePage(fileHandle, newRecordLength, header, headerNum, entryNum, actualPageNum, freeBytes);
+            seekFreePage(fileHandle, newRecordLength, actualPageNum, freeBytes);
 
             if (actualPageNum >= numOfPages) {
-                if (headerNum >= numOfPages) {
-                    memset(header, 0, PAGE_SIZE);
-                }
                 memset(actualPage, 0, PAGE_SIZE);
                 freeBytes = PAGE_SIZE - FREE_SPACE_SZ - NUM_OF_SLOTS_SZ;
             } else {
                 fileHandle.readPage(actualPageNum, actualPage);
             }
 
-            numOfSlots = *((uint16_t*) (actualPage + PAGE_SIZE - FREE_SPACE_SZ - NUM_OF_SLOTS_SZ));    // number of slots (including slots that don't contain a valid record)
+            numOfSlots = getNumOfSlots(actualPage);
             actualRecordOffset = PAGE_SIZE
                                  - freeBytes
                                  - FREE_SPACE_SZ
                                  - NUM_OF_SLOTS_SZ
-                                 - numOfSlots*(SLOT_OFFSET_SZ + SLOT_LENGTH_SZ);   // offset of the new record in the page
+                                 - numOfSlots*(SLOT_OFFSET_SZ + SLOT_LENGTH_SZ);
 
-            // update the original page (update the pointer)
+            // update the pointer in the original page
             *((PageNum*) (page + recordOffset)) = actualPageNum;
             *((uint16_t*) (page + recordOffset + PAGE_NUM_SZ)) = actualRecordOffset;
 
             // update free space in the actual page and the directory header page
-            freeBytes -= newRecordLength;
-            *((uint16_t*) (actualPage + PAGE_SIZE - FREE_SPACE_SZ)) = freeBytes;
-            *((PageNum *) (header + entryNum*(PAGE_NUM_SZ + FREE_SPACE_SZ))) = actualPageNum;
-            *((uint16_t*) (header + entryNum*(PAGE_NUM_SZ + FREE_SPACE_SZ) + PAGE_NUM_SZ)) = freeBytes;
+            updateFreeSpace(fileHandle, actualPage, actualPageNum, freeBytes - newRecordLength);
 
             writeRecord(actualPage, actualRecordOffset, recordDescriptor, data);
 
-            // write the updated pages to disk
+            // write the updated page to disk
+            fileHandle.writePage(pageNum, page);
             if (pageNum >= numOfPages) {
-                if (headerNum >= numOfPages) {
-                    fileHandle.appendPage(header);
-                } else {
-                    fileHandle.writePage(headerNum, header);
-                }
                 fileHandle.appendPage(actualPage);
             } else {
-                fileHandle.writePage(headerNum, header);
                 fileHandle.writePage(actualPageNum, actualPage);
             }
-            fileHandle.writePage(pageNum, page);
         }
-
     } else {
         // === this record is in the original page ===
         // TODO: not implemented yet
@@ -424,9 +395,6 @@ uint16_t RecordBasedFileManager::computeRecordLength(const vector<Attribute> &re
 
 RC RecordBasedFileManager::seekFreePage(FileHandle &fileHandle,
                                         uint16_t recordLength,
-//                                        byte *header,
-//                                        PageNum &headerNum,
-//                                        unsigned &entryNum,
                                         PageNum &pageNum,
                                         uint16_t &freeBytes)
 {
@@ -488,7 +456,6 @@ RC RecordBasedFileManager::seekFreePage(FileHandle &fileHandle,
     return 0;
 }
 
-// TODO: is it necessary to store the number of fields in the record itself?
 RC RecordBasedFileManager::writeRecord(byte *page,
                                        uint16_t recordOffset,
                                        const vector<Attribute> &recordDescriptor,

@@ -72,7 +72,7 @@ RC RecordBasedFileManager::insertRecord(FileHandle &fileHandle,
                             - NUM_OF_SLOTS_SZ
                             - numOfSlots*(SLOT_OFFSET_SZ + SLOT_LENGTH_SZ);   // offset of the new record in the page
 
-    // add offset and length info of the new record to slot directory in the page
+    // add offset and length info of the new record to slot directory
     rid.pageNum = pageNum;
     uint16_t slotNum = 1;   // slot number starts from 1 (not from 0)
     for (; slotNum <= numOfSlots; ++slotNum) {
@@ -225,9 +225,6 @@ RC RecordBasedFileManager::updateRecord(FileHandle &fileHandle,
         return -1;
     }
 
-    // offset of the old record
-    uint16_t recordOffset = getRecordOffset(page, slotNum);
-
     // length of the updated record
     uint16_t newRecordLength = computeRecordLength(recordDescriptor, data);
 
@@ -236,199 +233,116 @@ RC RecordBasedFileManager::updateRecord(FileHandle &fileHandle,
         setRecordLength(page, slotNum, newRecordLength);
     }
 
-    if (recordOffset >= PAGE_SIZE) {
-        // === this record has been moved to another page (not in the original page) ===
-        // in this case, (recordOffset - PAGE_SIZE) is the offset of the pointer (in the original page)
-        // to the actual record data (in another page)
-        recordOffset -= PAGE_SIZE;
+    // offset of the old record (or pointer to the old record)
+    uint16_t recordOffset = getRecordOffset(page, slotNum);
 
-        // get the actual page containing this record
-        PageNum actualPageNum = *((PageNum *) (page + recordOffset));
-        uint16_t actualRecordOffset = *((uint16_t*) (page + recordOffset + PAGE_NUM_SZ));
-        byte actualPage[PAGE_SIZE];
-        fileHandle.readPage(actualPageNum, actualPage);
-        uint16_t freeBytes = getFreeBytes(actualPage);
+    PageNum dataPageNum;
+    byte *dataPage;     // pointer to the page containing the actual record data
+    uint16_t freeBytes;
+    uint16_t numOfSlots;
+    if (recordOffset >= PAGE_SIZE) {    // this record has been moved to another page (not in the original page)
+        dataPageNum = *((PageNum*) (page + recordOffset - PAGE_SIZE));
+        recordOffset = *((uint16_t*) (page + recordOffset - PAGE_SIZE + PAGE_NUM_SZ));
+        dataPage = new byte[PAGE_SIZE];
+        fileHandle.readPage(dataPageNum, dataPage);
+    } else {    // this record is in the original page
+        dataPageNum = pageNum;
+        dataPage = page;
+    }
+    freeBytes = getFreeBytes(dataPage);
+    numOfSlots = getNumOfSlots(dataPage);
 
-        if (freeBytes + recordLength >= newRecordLength) {
-            // === update the record in the actual page ===
+    // number of bytes shifted when updating or removing the record
+    unsigned numOfShift = PAGE_SIZE
+                          - freeBytes
+                          - FREE_SPACE_SZ - NUM_OF_SLOTS_SZ
+                          - numOfSlots*(SLOT_OFFSET_SZ + SLOT_LENGTH_SZ)
+                          - recordOffset
+                          - recordLength;
 
-            if (recordLength != newRecordLength) {
-                fileHandle.writePage(pageNum, page);
-                updateFreeSpace(fileHandle, actualPage, actualPageNum, freeBytes + recordLength - newRecordLength);
-                uint16_t numOfSlots = getNumOfSlots(actualPage);
-                unsigned numOfShift = PAGE_SIZE
-                                      - freeBytes
-                                      - FREE_SPACE_SZ - NUM_OF_SLOTS_SZ
-                                      - numOfSlots*(SLOT_OFFSET_SZ + SLOT_LENGTH_SZ)
-                                      - actualRecordOffset
-                                      - recordLength;
-                // shift records after the updated records to their new positions
-                memmove(actualPage + actualRecordOffset + newRecordLength,
-                        actualPage + actualRecordOffset + recordLength,
-                        numOfShift);
+    if (freeBytes + recordLength >= newRecordLength) {  // update the record in place
+        // shift records on the right of the updated record to their new positions
+        memmove(dataPage + recordOffset + newRecordLength,
+                dataPage + recordOffset + recordLength,
+                numOfShift);
 
-                // update offset of the records on the right of updated record
-                for (uint16_t slotNum = 1; slotNum <= numOfSlots; ++slotNum) {
-                    uint16_t offset = getRecordOffset(actualPage, slotNum);
-                    if (offset > actualRecordOffset) {
-                        setRecordOffset(actualPage, slotNum, offset + newRecordLength - recordLength);
-                    }
-                }
-            }
-
-            writeRecord(actualPage, actualRecordOffset, recordDescriptor, data);
-            fileHandle.writePage(actualPageNum, actualPage);
-        } else {
-            // === move the updated record to another page with enough space ===
-
-            updateFreeSpace(fileHandle, actualPage, actualPageNum, freeBytes + recordLength);
-            uint16_t numOfSlots = getNumOfSlots(actualPage);
-            unsigned numOfShift = PAGE_SIZE
-                                  - freeBytes
-                                  - FREE_SPACE_SZ - NUM_OF_SLOTS_SZ
-                                  - numOfSlots*(SLOT_OFFSET_SZ + SLOT_LENGTH_SZ)
-                                  - actualRecordOffset - recordLength;
-
-            // move left to remove the old record from the actual page
-            memmove(actualPage + actualRecordOffset,
-                    actualPage + actualRecordOffset + recordLength,
-                    numOfShift);
-
-            // update offset of the records on the right of updated record
-            for (uint16_t slotNum = 1; slotNum <= numOfSlots; ++slotNum) {
-                uint16_t offset = getRecordOffset(actualPage, slotNum);
-                if (offset > actualRecordOffset) {
-                    setRecordOffset(actualPage, slotNum, offset - recordLength);
-                }
-            }
-
-            fileHandle.writePage(actualPageNum, actualPage);
-
-            seekFreePage(fileHandle, newRecordLength, actualPageNum, freeBytes);
-            auto numOfPages = fileHandle.getNumberOfPages();
-            if (actualPageNum >= numOfPages) {
-                memset(actualPage, 0, PAGE_SIZE);
-                freeBytes = PAGE_SIZE - FREE_SPACE_SZ - NUM_OF_SLOTS_SZ;
-            } else {
-                fileHandle.readPage(actualPageNum, actualPage);
-            }
-
-            numOfSlots = getNumOfSlots(actualPage);
-            actualRecordOffset = PAGE_SIZE
-                                 - freeBytes
-                                 - FREE_SPACE_SZ
-                                 - NUM_OF_SLOTS_SZ
-                                 - numOfSlots*(SLOT_OFFSET_SZ + SLOT_LENGTH_SZ);
-
-            // update the pointer in the original page
-            *((PageNum*) (page + recordOffset)) = actualPageNum;
-            *((uint16_t*) (page + recordOffset + PAGE_NUM_SZ)) = actualRecordOffset;
-
-            // update free space in the actual page and the directory header page
-            updateFreeSpace(fileHandle, actualPage, actualPageNum, freeBytes - newRecordLength);
-
-            writeRecord(actualPage, actualRecordOffset, recordDescriptor, data);
-
-            // write the updated page to disk
-            fileHandle.writePage(pageNum, page);
-            if (pageNum >= numOfPages) {
-                fileHandle.appendPage(actualPage);
-            } else {
-                fileHandle.writePage(actualPageNum, actualPage);
+        // update offset of the shifted records
+        for (uint16_t slotNum = 1; slotNum <= numOfSlots; ++slotNum) {
+            uint16_t offset = getRecordOffset(dataPage, slotNum);
+            if (offset > recordOffset) {
+                setRecordOffset(dataPage, slotNum, offset + newRecordLength - recordLength);
             }
         }
-    } else {
-        // === this record is in the original page ===
 
-        uint16_t freeBytes = getFreeBytes(page);
-        if (freeBytes + recordLength >= newRecordLength) {
-            // === update the record in the original page ===
+        updateFreeSpace(fileHandle, dataPage, dataPageNum, freeBytes + recordLength - newRecordLength);
+        writeRecord(dataPage, recordOffset, recordDescriptor, data);
 
-            if (recordLength != newRecordLength) {
-                fileHandle.writePage(pageNum, page);
-                updateFreeSpace(fileHandle, page, pageNum, freeBytes + recordLength - newRecordLength);
-                uint16_t numOfSlots = getNumOfSlots(page);
-                unsigned numOfShift = PAGE_SIZE
-                                      - freeBytes
-                                      - FREE_SPACE_SZ - NUM_OF_SLOTS_SZ
-                                      - numOfSlots*(SLOT_OFFSET_SZ + SLOT_LENGTH_SZ)
-                                      - recordOffset - recordLength;
-                // shift records on the right of the updated record to their new positions
-                memmove(page + recordOffset + newRecordLength,
-                        page + recordOffset + recordLength,
-                        numOfShift);
-
-                // update offset of the records on the right of updated record
-                for (uint16_t slotNum = 1; slotNum <= numOfSlots; ++slotNum) {
-                    uint16_t offset = getRecordOffset(page, slotNum);
-                    if (offset > recordOffset) {
-                        setRecordOffset(page, slotNum, offset + newRecordLength - recordLength);
-                    }
-                }
-            }
-
-            writeRecord(page, recordOffset, recordDescriptor, data);
-            fileHandle.writePage(pageNum, page);
-        } else {
-            // === move the updated record to another page with enough space ===
-
-            updateFreeSpace(fileHandle, page, pageNum, freeBytes + recordLength - PAGE_NUM_SZ - SLOT_OFFSET_SZ);
+        if (dataPageNum != pageNum) {
+            fileHandle.writePage(dataPageNum, dataPage);
+        }
+        fileHandle.writePage(pageNum, page);
+    } else {    // move the updated record to another page with enough space
+        unsigned ptrLength = 0;
+        if (dataPage == page) {
+            ptrLength = PAGE_NUM_SZ + SLOT_OFFSET_SZ;
             setRecordOffset(page, slotNum, recordOffset + PAGE_SIZE);
-            uint16_t numOfSlots = getNumOfSlots(page);
-            unsigned numOfShift = PAGE_SIZE
-                                  - freeBytes
-                                  - FREE_SPACE_SZ - NUM_OF_SLOTS_SZ
-                                  - numOfSlots*(SLOT_OFFSET_SZ + SLOT_LENGTH_SZ)
-                                  - recordOffset - recordLength;
+        }
 
-            // move left to remove the old record from the actual page
-            memmove(page + recordOffset + PAGE_NUM_SZ + SLOT_OFFSET_SZ,
-                    page + recordOffset + recordLength,
-                    numOfShift);
+        // move left to remove the old record
+        memmove(dataPage + recordOffset + ptrLength,
+                dataPage + recordOffset + recordLength,
+                numOfShift);
 
-            // update offset of the records on the right of updated record
-            for (uint16_t slotNum = 1; slotNum <= numOfSlots; ++slotNum) {
-                uint16_t offset = getRecordOffset(page, slotNum);
-                if (offset > recordOffset) {
-                    setRecordOffset(page, slotNum, offset + PAGE_NUM_SZ + SLOT_OFFSET_SZ - recordLength);
-                }
-            }
-
-            PageNum actualPageNum;
-            byte actualPage[PAGE_SIZE];
-            seekFreePage(fileHandle, newRecordLength, actualPageNum, freeBytes);
-            auto numOfPages = fileHandle.getNumberOfPages();
-            if (actualPageNum >= numOfPages) {
-                memset(actualPage, 0, PAGE_SIZE);
-                freeBytes = PAGE_SIZE - FREE_SPACE_SZ - NUM_OF_SLOTS_SZ;
-            } else {
-                fileHandle.readPage(actualPageNum, actualPage);
-            }
-
-            numOfSlots = getNumOfSlots(actualPage);
-            uint16_t actualRecordOffset = PAGE_SIZE
-                                          - freeBytes
-                                          - FREE_SPACE_SZ
-                                          - NUM_OF_SLOTS_SZ
-                                          - numOfSlots*(SLOT_OFFSET_SZ + SLOT_LENGTH_SZ);
-
-            // update the pointer in the original page
-            *((PageNum*) (page + recordOffset)) = actualPageNum;
-            *((uint16_t*) (page + recordOffset + PAGE_NUM_SZ)) = actualRecordOffset;
-
-            // update free space in the actual page and the directory header page
-            updateFreeSpace(fileHandle, actualPage, actualPageNum, freeBytes - newRecordLength);
-
-            writeRecord(actualPage, actualRecordOffset, recordDescriptor, data);
-
-            // write the updated page to disk
-            fileHandle.writePage(pageNum, page);
-            if (pageNum >= numOfPages) {
-                fileHandle.appendPage(actualPage);
-            } else {
-                fileHandle.writePage(actualPageNum, actualPage);
+        // update offset of the shifted records
+        for (uint16_t slotNum = 1; slotNum <= numOfSlots; ++slotNum) {
+            uint16_t offset = getRecordOffset(dataPage, slotNum);
+            if (offset > recordOffset) {
+                setRecordOffset(dataPage, slotNum, offset + ptrLength - recordLength);
             }
         }
+
+        updateFreeSpace(fileHandle, dataPage, dataPageNum, freeBytes + recordLength - ptrLength);
+        if (dataPage != page) {
+            fileHandle.writePage(dataPageNum, dataPage);
+        } else {
+            dataPage = new byte[PAGE_SIZE];
+        }
+
+        seekFreePage(fileHandle, newRecordLength, dataPageNum, freeBytes);
+        auto numOfPages = fileHandle.getNumberOfPages();
+        if (dataPageNum >= numOfPages) {
+            memset(dataPage, 0, PAGE_SIZE);
+            freeBytes = PAGE_SIZE - FREE_SPACE_SZ - NUM_OF_SLOTS_SZ;
+        } else {
+            fileHandle.readPage(dataPageNum, dataPage);
+        }
+
+        numOfSlots = getNumOfSlots(dataPage);
+        uint16_t newRecordOffset = PAGE_SIZE
+                                   - freeBytes
+                                   - FREE_SPACE_SZ
+                                   - NUM_OF_SLOTS_SZ
+                                   - numOfSlots*(SLOT_OFFSET_SZ + SLOT_LENGTH_SZ);
+
+        // update the pointer in the original page
+        recordOffset = getRecordOffset(page, slotNum);
+        *((PageNum*) (page + recordOffset)) = dataPageNum;
+        *((uint16_t*) (page + recordOffset + PAGE_NUM_SZ)) = newRecordOffset;
+
+        updateFreeSpace(fileHandle, dataPage, dataPageNum, freeBytes - newRecordLength);
+        writeRecord(dataPage, newRecordOffset, recordDescriptor, data);
+
+        // write the updated page to disk
+        if (pageNum >= numOfPages) {
+            fileHandle.appendPage(dataPage);
+        } else {
+            fileHandle.writePage(dataPageNum, dataPage);
+        }
+        fileHandle.writePage(pageNum, page);
+    }
+
+    if (dataPage != page) {
+        delete[] dataPage;
     }
 
     return 0;
@@ -611,7 +525,7 @@ void RecordBasedFileManager::updatePageDirectory(byte *header, unsigned entryNum
 
 void RecordBasedFileManager::updateFreeSpace(FileHandle &fileHandle, byte *page, PageNum pageNum, uint16_t freeBytes)
 {
-    *((uint16_t *) (page + PAGE_SIZE - FREE_SPACE_SZ)) = freeBytes;
+    *((uint16_t*) (page + PAGE_SIZE - FREE_SPACE_SZ)) = freeBytes;
     unsigned entryNum = pageNum % (MAX_NUM_OF_ENTRIES + 1) - 1;
     PageNum headerNum = pageNum - (entryNum + 1);
     byte header[PAGE_SIZE];

@@ -67,6 +67,7 @@ FileHandle::FileHandle(): readPageCounter(0), writePageCounter(0), appendPageCou
 
 FileHandle::~FileHandle()
 {
+    closeFile();
 }
 
 

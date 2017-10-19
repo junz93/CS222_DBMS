@@ -32,7 +32,15 @@ RC RecordBasedFileManager::destroyFile(const string &fileName) {
 }
 
 RC RecordBasedFileManager::openFile(const string &fileName, FileHandle &fileHandle) {
-    return PagedFileManager::instance()->openFile(fileName, fileHandle);
+    if (PagedFileManager::instance()->openFile(fileName, fileHandle) == -1) {
+        return -1;
+    }
+    if (fileHandle.getNumberOfPages() == 0) {
+        // add a new directory header page
+        byte header[PAGE_SIZE] = {0};
+        fileHandle.appendPage(header);
+    }
+    return 0;
 }
 
 RC RecordBasedFileManager::closeFile(FileHandle &fileHandle) {
@@ -422,11 +430,9 @@ RC RecordBasedFileManager::seekFreePage(FileHandle &fileHandle,
 
     if (!hasFreePage) {
         if (!hasFreeHeader) {
-            if (numOfPages > 0) {
-                // update the pointer to the next directory header page
-                *((PageNum*) (header + PAGE_SIZE - sizeof(PageNum))) = numOfPages;
-                fileHandle.writePage(headerNum, header);
-            }
+            // update the pointer to the next directory header page
+            *((PageNum*) (header + PAGE_SIZE - sizeof(PageNum))) = numOfPages;
+            fileHandle.writePage(headerNum, header);
 
             // set numbers for new record page
             memset(header, 0, PAGE_SIZE);
@@ -594,7 +600,7 @@ bool RecordBasedFileManager::readField(const byte *page, unsigned recordOffset, 
             break;
         case TypeVarChar:
             *((uint32_t*) data) = fieldLength;
-            memcpy(data + 4, pField, fieldLength);
+            memcpy((byte*) data + 4, pField, fieldLength);
             break;
     }
     return true;

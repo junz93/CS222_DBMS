@@ -213,7 +213,8 @@ private:
         return *((uint16_t*) (page
                               + PAGE_SIZE
                               - FREE_SPACE_SZ - NUM_OF_SLOTS_SZ
-                              - slotNum*(SLOT_OFFSET_SZ + SLOT_LENGTH_SZ)));
+                              - slotNum*(SLOT_OFFSET_SZ + SLOT_LENGTH_SZ)
+                              - SLOT_LENGTH_SZ - SLOT_OFFSET_SZ));
     }
 
     void setRecordOffset(byte *page, unsigned slotNum, unsigned recordOffset)
@@ -222,7 +223,8 @@ private:
                        + PAGE_SIZE
                        - FREE_SPACE_SZ
                        - NUM_OF_SLOTS_SZ
-                       - slotNum*(SLOT_OFFSET_SZ + SLOT_LENGTH_SZ))) = recordOffset;
+                       - slotNum*(SLOT_OFFSET_SZ + SLOT_LENGTH_SZ)
+                       - SLOT_LENGTH_SZ - SLOT_OFFSET_SZ)) = recordOffset;
     }
 
     unsigned getRecordLength(const byte *page, unsigned slotNum)
@@ -231,7 +233,7 @@ private:
                               + PAGE_SIZE
                               - FREE_SPACE_SZ - NUM_OF_SLOTS_SZ
                               - slotNum*(SLOT_OFFSET_SZ + SLOT_LENGTH_SZ)
-                              + SLOT_OFFSET_SZ));
+                              - SLOT_LENGTH_SZ));
     }
 
     void setRecordLength(byte *page, unsigned slotNum, unsigned recordLength)
@@ -240,7 +242,7 @@ private:
                        + PAGE_SIZE
                        - FREE_SPACE_SZ - NUM_OF_SLOTS_SZ
                        - slotNum*(SLOT_OFFSET_SZ + SLOT_LENGTH_SZ)
-                       + SLOT_OFFSET_SZ)) = recordLength;
+                       - SLOT_LENGTH_SZ)) = recordLength;
     }
 
     unsigned getBytesOfNullFlags(unsigned numOfFields)

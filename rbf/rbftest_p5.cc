@@ -103,7 +103,7 @@ int RBFTest_p5(PagedFileManager *pfm)
     assert(rc == success && "Open the file should not fail.");
 
 // collect after counters
-    rc = fileHandle.collectCounterValues(readPageCount1, writePageCount1, appendPageCount1);
+    rc = fileHandle2.collectCounterValues(readPageCount1, writePageCount1, appendPageCount1);
     if(rc != success)
     {
         cout << "[FAIL] collectCounterValues() failed. Test Case 13 failed." << endl;

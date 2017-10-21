@@ -104,7 +104,7 @@ RC FileHandle::closeFile()
     byte header[PAGE_SIZE];
     file.read(header, PAGE_SIZE);
     memcpy(header + RD_OFFSET, &readPageCounter, sizeof(unsigned));
-    memcpy(header + WR_OFFSET + sizeof(unsigned), &writePageCounter, sizeof(unsigned));
+    memcpy(header + WR_OFFSET, &writePageCounter, sizeof(unsigned));
     memcpy(header + APP_OFFSET, &appendPageCounter, sizeof(unsigned));
     file.seekp(0, fstream::beg);
     file.write(header, PAGE_SIZE);

@@ -151,7 +151,7 @@ RC RelationManager::getAttributes(const string &tableName, vector<Attribute> &at
         positionAttributeMap[columnPositon] = attribute;
         offset += sizeof(int);
     }
-    for (int i = 0; i < positionAttributeMap.size(); i++) {
+    for (int i = 1; i <= positionAttributeMap.size(); i++) {
         map<int,Attribute>::iterator it = positionAttributeMap.find(i);
         if (it == positionAttributeMap.end()) {
             return FAIL;

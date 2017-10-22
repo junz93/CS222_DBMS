@@ -32,7 +32,15 @@ RC RecordBasedFileManager::destroyFile(const string &fileName) {
 }
 
 RC RecordBasedFileManager::openFile(const string &fileName, FileHandle &fileHandle) {
-    return PagedFileManager::instance()->openFile(fileName, fileHandle);
+    if (PagedFileManager::instance()->openFile(fileName, fileHandle) == -1) {
+        return -1;
+    }
+    if (fileHandle.getNumberOfPages() == 0) {
+        // add a new directory header page
+        byte header[PAGE_SIZE] = {0};
+        fileHandle.appendPage(header);
+    }
+    return 0;
 }
 
 RC RecordBasedFileManager::closeFile(FileHandle &fileHandle) {
@@ -46,16 +54,17 @@ RC RecordBasedFileManager::insertRecord(FileHandle &fileHandle,
 {
     // compute the length of the new record
     auto recordLength = computeRecordLength(recordDescriptor, data);
+    if (recordLength + SLOT_OFFSET_SZ + SLOT_LENGTH_SZ > PAGE_SIZE - FREE_SPACE_SZ - NUM_OF_SLOTS_SZ) {
+        return -1;
+    }
 
     // look for a page with enough free space for the new record
     PageNum pageNum;
-    uint16_t freeBytes;
-    seekFreePage(fileHandle, recordLength, pageNum, freeBytes);
+    seekFreePage(fileHandle, recordLength, pageNum);
     PageNum numOfPages = fileHandle.getNumberOfPages();
     byte page[PAGE_SIZE];
-    if (pageNum >= numOfPages) {
-        // === there is no free page, so we have to append a new page ===
-
+    unsigned freeBytes;
+    if (pageNum >= numOfPages) {    // there is no free page, so we have to append a new page
         memset(page, 0, PAGE_SIZE);
 
         // initialize the free space for a new page
@@ -63,10 +72,11 @@ RC RecordBasedFileManager::insertRecord(FileHandle &fileHandle,
     } else {
         // read the free page from disk
         fileHandle.readPage(pageNum, page);
+        freeBytes = getFreeBytes(page);
     }
 
-    uint16_t numOfSlots = getNumOfSlots(page);    // number of slots (including slots that don't contain a valid record)
-    uint16_t recordOffset = PAGE_SIZE
+    unsigned numOfSlots = getNumOfSlots(page);    // number of slots (including slots that don't contain a valid record)
+    unsigned recordOffset = PAGE_SIZE
                             - freeBytes
                             - FREE_SPACE_SZ
                             - NUM_OF_SLOTS_SZ
@@ -74,9 +84,9 @@ RC RecordBasedFileManager::insertRecord(FileHandle &fileHandle,
 
     // add offset and length info of the new record to slot directory
     rid.pageNum = pageNum;
-    uint16_t slotNum = 1;   // slot number starts from 1 (not from 0)
-    for (; slotNum <= numOfSlots; ++slotNum) {
-        uint16_t sLength = getRecordLength(page, slotNum);
+    unsigned slotNum = 0;   // slot number starts from 1 (not from 0)
+    for (; slotNum < numOfSlots; ++slotNum) {
+        unsigned sLength = getRecordLength(page, slotNum);
         if (sLength == 0) {
             break;
         }
@@ -86,7 +96,7 @@ RC RecordBasedFileManager::insertRecord(FileHandle &fileHandle,
     setRecordLength(page, slotNum, recordLength);
 
     // update number of free space and number of slots in slot directory and directory header page
-    if (slotNum > numOfSlots) {
+    if (slotNum >= numOfSlots) {
         freeBytes -= recordLength + SLOT_OFFSET_SZ + SLOT_LENGTH_SZ;
         setNumOfSlots(page, numOfSlots + 1);
     } else {
@@ -114,63 +124,27 @@ RC RecordBasedFileManager::readRecord(FileHandle &fileHandle,
 {
     byte page[PAGE_SIZE];
     fileHandle.readPage(rid.pageNum, page);
-    uint16_t recordLength = getRecordLength(page, rid.slotNum);
-    if (recordLength == 0) {
-        // the record in this slot is invalid (deleted)
+    unsigned recordLength = getRecordLength(page, rid.slotNum);
+    if (recordLength == 0) {    // the record in this slot is invalid (deleted)
         return -1;
     }
 
-    uint16_t recordOffset = getRecordOffset(page, rid.slotNum);
-    auto numOfFields = recordDescriptor.size();
-
-    // copy the null flags from page to record data returned to caller
-    memcpy(data, page + recordOffset + NUM_OF_FIELDS_SZ, (size_t) ceil(numOfFields / 8.0));
-
-    // pointers to page data
-    const byte *pOffsetP = page + recordOffset + NUM_OF_FIELDS_SZ + (int) ceil(numOfFields / 8.0);
-    const byte *pFieldP = pOffsetP + numOfFields * FIELD_OFFSET_SZ;
-    uint16_t fieldBegin = 0;    // begin offset of a field (relative to the start position of fields)
-
-    // pointers to record data that is returned to caller
-    byte *pFlag = (byte*) data;
-    byte *pData = pFlag + (int) ceil(numOfFields / 8.0);
-    uint8_t nullFlag = 0x80;
-
-    for (const Attribute &attr : recordDescriptor) {
-        if (!(*pFlag & nullFlag)) {
-            uint16_t fieldEnd = *((uint16_t*) pOffsetP);    // end offset of the current field
-            uint16_t fieldLength = fieldEnd - fieldBegin;
-            switch (attr.type) {
-                case TypeInt:
-                case TypeReal:
-                    memcpy(pData, pFieldP, fieldLength);
-                    break;
-                case TypeVarChar:
-                    *((uint32_t*) pData) = fieldLength;
-                    pData += 4;
-                    memcpy(pData, pFieldP, fieldLength);
-                    break;
-            }
-            fieldBegin = fieldEnd;      // end offset of current field is begin offset of next field
-            pFieldP += fieldLength;
-            pData += fieldLength;
-        }
-
-        pOffsetP += FIELD_OFFSET_SZ;
-        if (nullFlag == 0x01) {
-            nullFlag = 0x80;
-            ++pFlag;
-        } else {
-            nullFlag = nullFlag >> 1;
-        }
+    unsigned recordOffset = getRecordOffset(page, rid.slotNum);
+    if (recordOffset >= PAGE_SIZE) {    // this record has been moved to another page
+        PageNum pageNum = *((PageNum*) (page + recordOffset - PAGE_SIZE));
+        unsigned slotNum = *((uint16_t*) (page + recordOffset - PAGE_SIZE + PAGE_NUM_SZ));
+        fileHandle.readPage(pageNum, page);
+        recordOffset = getRecordOffset(page, slotNum);
     }
+    transmuteRecord(page, recordOffset, recordDescriptor, data);
+
     return 0;
 }
 
 RC RecordBasedFileManager::printRecord(const vector<Attribute> &recordDescriptor, const void *data)
 {
     const byte *pFlag = (const byte*) data;
-    const byte *pData = pFlag + (int) ceil(recordDescriptor.size() / 8.0);
+    const byte *pData = pFlag + getBytesOfNullFlags(recordDescriptor.size());
     uint8_t nullFlag = 0x80;     // cannot use (signed) byte
     for (const Attribute &attr : recordDescriptor) {
         if (*pFlag & nullFlag) {
@@ -205,6 +179,79 @@ RC RecordBasedFileManager::printRecord(const vector<Attribute> &recordDescriptor
         }
     }
     cout << endl;
+
+    return 0;
+}
+
+RC RecordBasedFileManager::deleteRecord(FileHandle &fileHandle,
+                                        const vector<Attribute> &recordDescriptor,
+                                        const RID &rid)
+{
+    PageNum pageNum = rid.pageNum;
+    unsigned slotNum = rid.slotNum;
+    byte page[PAGE_SIZE];
+    fileHandle.readPage(pageNum, page);
+
+    unsigned recordLength = getRecordLength(page, slotNum);
+    if (recordLength == 0) {    // this record has been deleted and should not be deleted again
+        return -1;
+    }
+
+    setRecordLength(page, slotNum, 0);
+    unsigned recordOffset = getRecordOffset(page, slotNum);
+    if (recordOffset >= PAGE_SIZE) {    // this record has been moved to another page (not in the original page)
+        recordOffset -= PAGE_SIZE;
+        pageNum = *((PageNum*) (page + recordOffset));
+        slotNum = *((uint16_t*) (page + recordOffset + PAGE_NUM_SZ));
+
+        // delete the pointer in the original page
+        unsigned freeBytes = getFreeBytes(page);
+        unsigned numOfSlots = getNumOfSlots(page);
+        unsigned numOfShift = PAGE_SIZE
+                              - freeBytes
+                              - FREE_SPACE_SZ - NUM_OF_SLOTS_SZ
+                              - numOfSlots*(SLOT_OFFSET_SZ + SLOT_LENGTH_SZ)
+                              - recordOffset - recordLength;
+        memmove(page + recordOffset,
+                page + recordOffset + PAGE_NUM_SZ + SLOT_NUM_SZ,
+                numOfShift);
+        for (unsigned slot = 1; slot <= numOfSlots; ++slot) {
+            unsigned offset = getRecordOffset(page, slot);
+            if (offset > PAGE_SIZE + recordOffset || (offset < PAGE_SIZE && offset > recordOffset)) {
+                setRecordOffset(page, slot, offset - PAGE_NUM_SZ - SLOT_NUM_SZ);
+            }
+        }
+        updateFreeSpace(fileHandle, page, rid.pageNum, freeBytes + PAGE_NUM_SZ + SLOT_NUM_SZ);
+        fileHandle.writePage(rid.pageNum, page);
+
+        fileHandle.readPage(pageNum, page);
+        setRecordLength(page, slotNum, 0);
+        recordOffset = getRecordOffset(page, slotNum);
+    }
+
+    unsigned freeBytes = getFreeBytes(page);
+    unsigned numOfSlots = getNumOfSlots(page);
+    unsigned numOfShift = PAGE_SIZE
+                          - freeBytes
+                          - FREE_SPACE_SZ - NUM_OF_SLOTS_SZ
+                          - numOfSlots*(SLOT_OFFSET_SZ + SLOT_LENGTH_SZ)
+                          - recordOffset
+                          - recordLength;
+
+    memmove(page + recordOffset,
+            page + recordOffset + recordLength,
+            numOfShift);
+
+    for (unsigned slot = 1; slot <= numOfSlots; ++slot) {
+        unsigned offset = getRecordOffset(page, slot);
+        if (offset > PAGE_SIZE + recordOffset || (offset < PAGE_SIZE && offset > recordOffset)) {
+            setRecordOffset(page, slot, offset - recordLength);
+        }
+    }
+
+    updateFreeSpace(fileHandle, page, pageNum, freeBytes + recordLength);
+    fileHandle.writePage(pageNum, page);
+
     return 0;
 }
 
@@ -214,43 +261,47 @@ RC RecordBasedFileManager::updateRecord(FileHandle &fileHandle,
                                         const RID &rid)
 {
     PageNum pageNum = rid.pageNum;
-    uint16_t slotNum = rid.slotNum;
+    unsigned slotNum = rid.slotNum;
     byte page[PAGE_SIZE];
     fileHandle.readPage(pageNum, page);
 
     // length of the old record
-    uint16_t recordLength = getRecordLength(page, slotNum);
-    if (recordLength == 0) {
-        // this record has been deleted and should not be updated
+    unsigned recordLength = getRecordLength(page, slotNum);
+    if (recordLength == 0) {    // this record has been deleted and should not be updated
         return -1;
     }
 
     // length of the updated record
-    uint16_t newRecordLength = computeRecordLength(recordDescriptor, data);
+    unsigned newRecordLength = computeRecordLength(recordDescriptor, data);
+
+    if (newRecordLength + SLOT_OFFSET_SZ + SLOT_LENGTH_SZ > PAGE_SIZE - FREE_SPACE_SZ - NUM_OF_SLOTS_SZ) {
+        return -1;
+    }
 
     // update the length of record in the original page
     if (recordLength != newRecordLength) {
         setRecordLength(page, slotNum, newRecordLength);
     }
 
-    // offset of the old record (or pointer to the old record)
-    uint16_t recordOffset = getRecordOffset(page, slotNum);
+    // offset of the old record (or offset of pointer to the old record)
+    unsigned recordOffset = getRecordOffset(page, slotNum);
 
     PageNum dataPageNum;
-    byte *dataPage;     // pointer to the page containing the actual record data
-    uint16_t freeBytes;
-    uint16_t numOfSlots;
+    unsigned dataSlotNum;
+    byte *dataPage;     // the page that contains the actual record data
     if (recordOffset >= PAGE_SIZE) {    // this record has been moved to another page (not in the original page)
         dataPageNum = *((PageNum*) (page + recordOffset - PAGE_SIZE));
-        recordOffset = *((uint16_t*) (page + recordOffset - PAGE_SIZE + PAGE_NUM_SZ));
+        dataSlotNum = *((uint16_t*) (page + recordOffset - PAGE_SIZE + PAGE_NUM_SZ));
         dataPage = new byte[PAGE_SIZE];
         fileHandle.readPage(dataPageNum, dataPage);
+        recordOffset = getRecordOffset(dataPage, dataSlotNum);
     } else {    // this record is in the original page
         dataPageNum = pageNum;
+        dataSlotNum = slotNum;
         dataPage = page;
     }
-    freeBytes = getFreeBytes(dataPage);
-    numOfSlots = getNumOfSlots(dataPage);
+    unsigned freeBytes = getFreeBytes(dataPage);
+    unsigned numOfSlots = getNumOfSlots(dataPage);
 
     // number of bytes shifted when updating or removing the record
     unsigned numOfShift = PAGE_SIZE
@@ -261,31 +312,37 @@ RC RecordBasedFileManager::updateRecord(FileHandle &fileHandle,
                           - recordLength;
 
     if (freeBytes + recordLength >= newRecordLength) {  // update the record in place
-        // shift records on the right of the updated record to their new positions
-        memmove(dataPage + recordOffset + newRecordLength,
-                dataPage + recordOffset + recordLength,
-                numOfShift);
-
-        // update offset of the shifted records
-        for (uint16_t slotNum = 1; slotNum <= numOfSlots; ++slotNum) {
-            uint16_t offset = getRecordOffset(dataPage, slotNum);
-            if (offset > recordOffset) {
-                setRecordOffset(dataPage, slotNum, offset + newRecordLength - recordLength);
+        if (recordLength != newRecordLength) {
+            if (dataPage != page) { // this record has been moved to another page
+                fileHandle.writePage(pageNum, page);
+                setRecordLength(dataPage, dataSlotNum, newRecordLength);
             }
-        }
 
-        updateFreeSpace(fileHandle, dataPage, dataPageNum, freeBytes + recordLength - newRecordLength);
+            // shift records on the right of the updated record to their new positions
+            memmove(dataPage + recordOffset + newRecordLength,
+                    dataPage + recordOffset + recordLength,
+                    numOfShift);
+
+            // update offset of the shifted records
+            for (unsigned slot = 1; slot <= numOfSlots; ++slot) {
+                unsigned offset = getRecordOffset(dataPage, slot);
+                if (offset > PAGE_SIZE + recordOffset || (offset < PAGE_SIZE && offset > recordOffset)) {
+                    setRecordOffset(dataPage, slot, offset + newRecordLength - recordLength);
+                }
+            }
+
+            updateFreeSpace(fileHandle, dataPage, dataPageNum, freeBytes + recordLength - newRecordLength);
+        }
         writeRecord(dataPage, recordOffset, recordDescriptor, data);
 
-        if (dataPageNum != pageNum) {
-            fileHandle.writePage(dataPageNum, dataPage);
-        }
-        fileHandle.writePage(pageNum, page);
+        fileHandle.writePage(dataPageNum, dataPage);
     } else {    // move the updated record to another page with enough space
         unsigned ptrLength = 0;
         if (dataPage == page) {
-            ptrLength = PAGE_NUM_SZ + SLOT_OFFSET_SZ;
+            ptrLength = PAGE_NUM_SZ + SLOT_NUM_SZ;  // pointer: (page number, slot number)
             setRecordOffset(page, slotNum, recordOffset + PAGE_SIZE);
+        } else {
+            setRecordLength(dataPage, dataSlotNum, 0);
         }
 
         // move left to remove the old record
@@ -294,50 +351,26 @@ RC RecordBasedFileManager::updateRecord(FileHandle &fileHandle,
                 numOfShift);
 
         // update offset of the shifted records
-        for (uint16_t slotNum = 1; slotNum <= numOfSlots; ++slotNum) {
-            uint16_t offset = getRecordOffset(dataPage, slotNum);
-            if (offset > recordOffset) {
-                setRecordOffset(dataPage, slotNum, offset + ptrLength - recordLength);
+        for (unsigned slot = 1; slot <= numOfSlots; ++slot) {
+            unsigned offset = getRecordOffset(dataPage, slot);
+            if (offset > PAGE_SIZE + recordOffset || (offset < PAGE_SIZE && offset > recordOffset)) {
+                setRecordOffset(dataPage, slot, offset + ptrLength - recordLength);
             }
         }
 
         updateFreeSpace(fileHandle, dataPage, dataPageNum, freeBytes + recordLength - ptrLength);
         if (dataPage != page) {
             fileHandle.writePage(dataPageNum, dataPage);
-        } else {
-            dataPage = new byte[PAGE_SIZE];
         }
 
-        seekFreePage(fileHandle, newRecordLength, dataPageNum, freeBytes);
-        auto numOfPages = fileHandle.getNumberOfPages();
-        if (dataPageNum >= numOfPages) {
-            memset(dataPage, 0, PAGE_SIZE);
-            freeBytes = PAGE_SIZE - FREE_SPACE_SZ - NUM_OF_SLOTS_SZ;
-        } else {
-            fileHandle.readPage(dataPageNum, dataPage);
-        }
-
-        numOfSlots = getNumOfSlots(dataPage);
-        uint16_t newRecordOffset = PAGE_SIZE
-                                   - freeBytes
-                                   - FREE_SPACE_SZ
-                                   - NUM_OF_SLOTS_SZ
-                                   - numOfSlots*(SLOT_OFFSET_SZ + SLOT_LENGTH_SZ);
+        RID newRid;
+        insertRecord(fileHandle, recordDescriptor, data, newRid);
 
         // update the pointer in the original page
         recordOffset = getRecordOffset(page, slotNum);
-        *((PageNum*) (page + recordOffset)) = dataPageNum;
-        *((uint16_t*) (page + recordOffset + PAGE_NUM_SZ)) = newRecordOffset;
+        *((PageNum*) (page + recordOffset - PAGE_SIZE)) = newRid.pageNum;
+        *((uint16_t*) (page + recordOffset - PAGE_SIZE + PAGE_NUM_SZ)) = newRid.slotNum;
 
-        updateFreeSpace(fileHandle, dataPage, dataPageNum, freeBytes - newRecordLength);
-        writeRecord(dataPage, newRecordOffset, recordDescriptor, data);
-
-        // write the updated page to disk
-        if (pageNum >= numOfPages) {
-            fileHandle.appendPage(dataPage);
-        } else {
-            fileHandle.writePage(dataPageNum, dataPage);
-        }
         fileHandle.writePage(pageNum, page);
     }
 
@@ -348,6 +381,64 @@ RC RecordBasedFileManager::updateRecord(FileHandle &fileHandle,
     return 0;
 }
 
+RC RecordBasedFileManager::readAttribute(FileHandle &fileHandle,
+                                         const vector<Attribute> &recordDescriptor,
+                                         const RID &rid,
+                                         const string &attributeName,
+                                         void *data)
+{
+    PageNum pageNum = rid.pageNum;
+    unsigned slotNum = rid.slotNum;
+    byte page[PAGE_SIZE];
+    fileHandle.readPage(pageNum, page);
+    unsigned recordLength = getRecordLength(page, slotNum);
+    if (recordLength == 0) {
+        return -1;
+    }
+    unsigned recordOffset = getRecordOffset(page, slotNum);
+    if (recordOffset >= PAGE_SIZE) {
+        recordOffset -= PAGE_SIZE;
+        pageNum = *((PageNum*) (page + recordOffset));
+        slotNum = *((uint16_t*) (page + recordOffset + PAGE_NUM_SZ));
+        fileHandle.readPage(pageNum, page);
+        recordOffset = getRecordOffset(page, slotNum);
+    }
+
+    auto numOfFields = recordDescriptor.size();
+    unsigned attrNum = 0;
+    for (; attrNum < numOfFields; ++attrNum) {
+        if (recordDescriptor[attrNum].name == attributeName) {
+            break;
+        }
+    }
+    if (attrNum == numOfFields) {   // the given attribute name does not exist
+        return -1;
+    }
+    unsigned flagOffset = recordOffset + NUM_OF_FIELDS_SZ + attrNum / 8;
+    uint8_t nullFlag = 0x80;
+    nullFlag = nullFlag >> (attrNum % 8);
+    if (*((byte*) page + flagOffset) & nullFlag) {  // null field
+        memset(data, 0x80, 1);
+    } else {
+        memset(data, 0, 1);
+        byte *pData = (byte*) data + 1;
+        unsigned beginOffset = getFieldBeginOffset(page, recordOffset, attrNum, numOfFields);
+        unsigned fieldLength = getFieldEndOffset(page, recordOffset, attrNum, numOfFields) - beginOffset;
+        switch (recordDescriptor[attrNum].type) {
+            case TypeInt:
+            case TypeReal:
+                memcpy(pData, page + recordOffset + beginOffset, fieldLength);
+                break;
+            case TypeVarChar:
+                *((uint32_t*) pData) = fieldLength;
+                pData += 4;
+                memcpy(pData, page + recordOffset + beginOffset, fieldLength);
+                break;
+        }
+    }
+
+    return 0;
+}
 
 RC RecordBasedFileManager::scan(FileHandle &fileHandle,
                                 const vector<Attribute> &recordDescriptor,
@@ -357,15 +448,43 @@ RC RecordBasedFileManager::scan(FileHandle &fileHandle,
                                 const vector<string> &attributeNames,
                                 RBFM_ScanIterator &rbfm_ScanIterator)
 {
+    if (!rbfm_ScanIterator.attrNums.empty()) {
+        rbfm_ScanIterator.attrNums.clear();
+    }
 
+    for (const string &attrName : attributeNames) {
+        for (unsigned i = 0; i < recordDescriptor.size(); ++i) {
+            if (recordDescriptor[i].name == attrName) {
+                rbfm_ScanIterator.attrNums.push_back(i);
+                break;
+            }
+        }
+    }
+
+    for (unsigned i = 0; i < recordDescriptor.size(); ++i) {
+        if (recordDescriptor[i].name == conditionAttribute) {
+            rbfm_ScanIterator.conditionAttrNum = i;
+            break;
+        }
+    }
+
+    rbfm_ScanIterator.recordDescriptor = recordDescriptor;
+    rbfm_ScanIterator.compOp = compOp;
+    rbfm_ScanIterator.value = value;
+    rbfm_ScanIterator.fileHandle = &fileHandle;
+    rbfm_ScanIterator.containData = false;
+    rbfm_ScanIterator.numOfPages = fileHandle.getNumberOfPages();
+    rbfm_ScanIterator.pageNum = 0;
+
+    return 0;
 }
 
-uint16_t RecordBasedFileManager::computeRecordLength(const vector<Attribute> &recordDescriptor, const void *data)
+unsigned RecordBasedFileManager::computeRecordLength(const vector<Attribute> &recordDescriptor, const void *data)
 {
     auto numOfFields = recordDescriptor.size();
-    uint16_t recordLength = NUM_OF_FIELDS_SZ + ceil(numOfFields / 8.0) + numOfFields*FIELD_OFFSET_SZ;
+    unsigned recordLength = NUM_OF_FIELDS_SZ + getBytesOfNullFlags(numOfFields) + numOfFields*FIELD_OFFSET_SZ;
     const byte *pFlag = (const byte*) data;         // pointer to null flags
-    const byte *pData = pFlag + (int) ceil(numOfFields / 8.0);  // pointer to actual field data
+    const byte *pData = pFlag + getBytesOfNullFlags(numOfFields);  // pointer to actual field data
     uint8_t nullFlag = 0x80;     // cannot use (signed) byte
 
     // compute the length of the new record
@@ -397,9 +516,8 @@ uint16_t RecordBasedFileManager::computeRecordLength(const vector<Attribute> &re
 }
 
 RC RecordBasedFileManager::seekFreePage(FileHandle &fileHandle,
-                                        uint16_t recordLength,
-                                        PageNum &pageNum,
-                                        uint16_t &freeBytes)
+                                        unsigned recordLength,
+                                        PageNum &pageNum)
 {
     auto numOfPages = fileHandle.getNumberOfPages();
     bool hasFreeHeader = false;
@@ -416,7 +534,7 @@ RC RecordBasedFileManager::seekFreePage(FileHandle &fileHandle,
                 hasFreeHeader = true;
                 break;
             }
-            freeBytes = *((uint16_t*) (header + 6*entryNum + sizeof(PageNum)));
+            unsigned freeBytes = *((uint16_t*) (header + 6*entryNum + sizeof(PageNum)));
             if (freeBytes >= recordLength + SLOT_OFFSET_SZ + SLOT_LENGTH_SZ) {
                 hasFreePage = true;
                 break;
@@ -437,11 +555,9 @@ RC RecordBasedFileManager::seekFreePage(FileHandle &fileHandle,
 
     if (!hasFreePage) {
         if (!hasFreeHeader) {
-            if (numOfPages > 0) {
-                // update the pointer to the next directory header page
-                *((PageNum*) (header + PAGE_SIZE - sizeof(PageNum))) = numOfPages;
-                fileHandle.writePage(headerNum, header);
-            }
+            // update the pointer to the next directory header page
+            *((PageNum*) (header + PAGE_SIZE - sizeof(PageNum))) = numOfPages;
+            fileHandle.writePage(headerNum, header);
 
             // set numbers for new record page
             memset(header, 0, PAGE_SIZE);
@@ -459,53 +575,65 @@ RC RecordBasedFileManager::seekFreePage(FileHandle &fileHandle,
     return 0;
 }
 
-RC RecordBasedFileManager::writeRecord(byte *page,
-                                       uint16_t recordOffset,
-                                       const vector<Attribute> &recordDescriptor,
-                                       const void *data)
+RC RecordBasedFileManager::updateFreeSpace(FileHandle &fileHandle, byte *page, PageNum pageNum, unsigned freeBytes)
+{
+    *((uint16_t*) (page + PAGE_SIZE - FREE_SPACE_SZ)) = freeBytes;
+    unsigned entryNum = pageNum % (MAX_NUM_OF_ENTRIES + 1) - 1;
+    PageNum headerNum = pageNum - (entryNum + 1);
+    byte header[PAGE_SIZE];
+    fileHandle.readPage(headerNum, header);
+    *((PageNum*) (header + entryNum*(PAGE_NUM_SZ + FREE_SPACE_SZ))) = pageNum;
+    *((uint16_t*) (header + entryNum*(PAGE_NUM_SZ + FREE_SPACE_SZ) + PAGE_NUM_SZ)) = freeBytes;
+    fileHandle.writePage(headerNum, header);
+
+    return 0;
+}
+
+void RecordBasedFileManager::writeRecord(byte *page,
+                                         unsigned recordOffset,
+                                         const vector<Attribute> &recordDescriptor,
+                                         const void *data)
 {
     auto numOfFields = recordDescriptor.size();
+
     // write the number of fields of the new record to page
     *((uint16_t*) (page + recordOffset)) = numOfFields;
 
     // copy the null flags from record data in memory to page
-    memcpy(page + recordOffset + NUM_OF_FIELDS_SZ, data, ceil(numOfFields / 8.0));
+    memcpy(page + recordOffset + NUM_OF_FIELDS_SZ, data, getBytesOfNullFlags(numOfFields));
 
     // pointers to page data read from disk
-    byte *pOffsetP = page + recordOffset + NUM_OF_FIELDS_SZ + (int) ceil(numOfFields / 8.0);   // pointer to field offset
-    byte *pFieldP = pOffsetP + numOfFields*FIELD_OFFSET_SZ;     // pointer to actual field data
-    uint16_t fieldBegin = 0;    // begin offset of a field (relative to the start position of actual field data)
+    byte *pOffset = page + recordOffset + NUM_OF_FIELDS_SZ + getBytesOfNullFlags(numOfFields);   // pointer to field offset
+    byte *pField = pOffset + numOfFields*FIELD_OFFSET_SZ;     // pointer to actual field data
+    unsigned fieldBegin = 0;    // begin offset of a field (relative to the start position of actual field data)
 
     // pointers to record data in memory
     const byte *pFlag = (const byte*) data;
-    const byte *pData = pFlag + (int) ceil(recordDescriptor.size() / 8.0);
+    const byte *pData = pFlag + getBytesOfNullFlags(numOfFields);
     uint8_t nullFlag = 0x80;
 
     for (const Attribute &attr : recordDescriptor) {
-        if (*pFlag & nullFlag) {
-            // this field is NULL
-            *((uint16_t*) pOffsetP) = fieldBegin;
+        if (*pFlag & nullFlag) {    // this field is NULL
+            *((uint16_t*) pOffset) = fieldBegin;
         } else {
+            unsigned fieldLength;
             switch (attr.type) {
                 case TypeInt:
                 case TypeReal:
-                    *((uint16_t*) pOffsetP) = (fieldBegin += attr.length);
-                    memcpy(pFieldP, pData, attr.length);
-                    pFieldP += attr.length;
-                    pData += attr.length;
+                    fieldLength = attr.length;
                     break;
                 case TypeVarChar:
-                    uint32_t length = *((const uint32_t*) pData);
+                    fieldLength = *((const uint32_t*) pData);
                     pData += 4;
-                    *((uint16_t*) pOffsetP) = (fieldBegin += length);
-                    memcpy(pFieldP, pData, length);
-                    pFieldP += length;
-                    pData += length;
                     break;
             }
+            *((uint16_t*) pOffset) = (fieldBegin += fieldLength);
+            memcpy(pField, pData, fieldLength);
+            pField += fieldLength;
+            pData += fieldLength;
         }
 
-        pOffsetP += 2;
+        pOffset += FIELD_OFFSET_SZ;
         if (nullFlag == 0x01) {
             nullFlag = 0x80;
             ++pFlag;
@@ -513,23 +641,211 @@ RC RecordBasedFileManager::writeRecord(byte *page,
             nullFlag = nullFlag >> 1;
         }
     }
+}
 
+void RecordBasedFileManager::transmuteRecord(const byte *page,
+                                             unsigned recordOffset,
+                                             const vector<Attribute> &recordDescriptor,
+                                             void *data)
+{
+    auto numOfFields = recordDescriptor.size();
+
+    // copy the null flags from page to record data returned to caller
+    memcpy(data, page + recordOffset + NUM_OF_FIELDS_SZ, getBytesOfNullFlags(numOfFields));
+
+    // pointers to page data
+    const byte *pOffset = page + recordOffset + NUM_OF_FIELDS_SZ + getBytesOfNullFlags(numOfFields);
+    const byte *pField = pOffset + numOfFields * FIELD_OFFSET_SZ;
+    unsigned fieldBegin = 0;    // begin offset of a field (relative to the start position of fields)
+
+    // pointers to record data that are returned to caller
+    byte *pFlag = (byte*) data;
+    byte *pData = pFlag + getBytesOfNullFlags(numOfFields);
+    uint8_t nullFlag = 0x80;
+
+    for (const auto &attr : recordDescriptor) {
+        if (!(*pFlag & nullFlag)) {
+            unsigned fieldEnd = *((uint16_t*) pOffset);    // end offset of the current field
+            unsigned fieldLength = fieldEnd - fieldBegin;
+            switch (attr.type) {
+                case TypeInt:
+                case TypeReal:
+                    break;
+                case TypeVarChar:
+                    *((uint32_t*) pData) = fieldLength;
+                    pData += 4;
+                    break;
+            }
+            memcpy(pData, pField, fieldLength);
+            fieldBegin = fieldEnd;      // end offset of current field is begin offset of next field
+            pField += fieldLength;
+            pData += fieldLength;
+        }
+
+        pOffset += FIELD_OFFSET_SZ;
+        if (nullFlag == 0x01) {
+            nullFlag = 0x80;
+            ++pFlag;
+        } else {
+            nullFlag = nullFlag >> 1;
+        }
+    }
+}
+
+bool RecordBasedFileManager::readField(const byte *page, unsigned recordOffset, unsigned fieldNum,
+                                       const Attribute &attribute, void *data)
+{
+    const byte *pFlag = page + recordOffset + NUM_OF_FIELDS_SZ + fieldNum / 8;
+    uint8_t nullFlag = 0x80;
+    nullFlag = nullFlag >> (fieldNum % 8);
+    if (*pFlag & nullFlag) {
+        return false;
+    }
+
+    unsigned numOfFields = *((uint16_t*) (page + recordOffset));
+    unsigned beginOffset = getFieldBeginOffset(page, recordOffset, fieldNum, numOfFields);
+    unsigned fieldLength = getFieldEndOffset(page, recordOffset, fieldNum, numOfFields) - beginOffset;
+    switch (attribute.type) {
+        case TypeInt:
+        case TypeReal:
+            memcpy(data, page + recordOffset + beginOffset, fieldLength);
+            break;
+        case TypeVarChar:
+            *((uint32_t*) data) = fieldLength;
+            memcpy((byte*) data + 4, page + recordOffset + beginOffset, fieldLength);
+            break;
+    }
+    return true;
+}
+
+RBFM_ScanIterator::RBFM_ScanIterator(): rbfm(RecordBasedFileManager::instance())
+{
+}
+
+RBFM_ScanIterator::~RBFM_ScanIterator()
+{
+    close();
+}
+
+RC RBFM_ScanIterator::getNextRecord(RID &rid, void *data)
+{
+    if (fileHandle == nullptr) {
+        return RBFM_EOF;
+    }
+
+    for (; pageNum < numOfPages; ++pageNum) {
+        if (isHeaderPage(pageNum)) {
+            continue;
+        }
+
+        if (!containData) {
+            containData = true;
+            fileHandle->readPage(pageNum, page);
+            numOfSlots = rbfm->getNumOfSlots(page);
+            slotNum = 0;
+        }
+
+        for (; slotNum < numOfSlots; ++slotNum) {
+            unsigned recordLength = rbfm->getRecordLength(page, slotNum);
+            if (recordLength == 0) {
+                continue;
+            }
+            unsigned recordOffset = rbfm->getRecordOffset(page, slotNum);
+            if (recordOffset >= PAGE_SIZE) {
+                continue;
+            }
+
+            byte *field = new byte[recordLength];
+            Attribute conditionAttr = recordDescriptor[conditionAttrNum];
+            if (!rbfm->readField(page, recordOffset, conditionAttrNum, conditionAttr, field)) {
+                delete[] field;
+                field = nullptr;
+            }
+            if (compare(conditionAttr.type, compOp, field, value)) {
+                transmuteRecord(recordOffset, data);
+                rid.pageNum = pageNum;
+                rid.slotNum = slotNum++;
+                delete[] field;
+                return 0;
+            }
+            delete[] field;
+        }
+
+        // have scanned all slots in this page
+        containData = false;
+    }
+
+    return RBFM_EOF;
+}
+
+RC RBFM_ScanIterator::close()
+{
+    fileHandle = nullptr;
     return 0;
 }
 
-void RecordBasedFileManager::updatePageDirectory(byte *header, unsigned entryNum, PageNum pageNum, uint16_t freeBytes)
+bool RBFM_ScanIterator::compare(AttrType type, CompOp compOp, const void *op1, const void *op2)
 {
-    *((PageNum*) (header + entryNum*(PAGE_NUM_SZ + FREE_SPACE_SZ))) = pageNum;
-    *((uint16_t*) (header + entryNum*(PAGE_NUM_SZ + FREE_SPACE_SZ) + PAGE_NUM_SZ)) = freeBytes;
+    if (compOp == NO_OP) {
+        return true;
+    }
+    if (op1 == nullptr && op2 == nullptr) {
+        return compOp == EQ_OP;
+    }
+    if (op1 == nullptr || op2 == nullptr) {
+        return compOp == NE_OP;
+    }
+
+    switch (type) {
+        case TypeInt: {
+            int32_t i1 = *((const int32_t*) op1);
+            int32_t i2 = *((const int32_t*) op2);
+            return compare(compOp, i1, i2);
+        }
+        case TypeReal: {
+            float r1 = *((const float *) op1);
+            float r2 = *((const float *) op2);
+            return compare(compOp, r1, r2);
+        }
+        case TypeVarChar: {
+            uint32_t len1 = *((const uint32_t*) op1);
+            uint32_t len2 = *((const uint32_t*) op2);
+            string vc1((const byte*) op1 + 4, len1);
+            string vc2((const byte*) op2 + 4, len2);
+            return compare(compOp, vc1, vc2);
+        }
+    }
 }
 
-void RecordBasedFileManager::updateFreeSpace(FileHandle &fileHandle, byte *page, PageNum pageNum, uint16_t freeBytes)
+void RBFM_ScanIterator::transmuteRecord(unsigned recordOffset, void *data)
 {
-    *((uint16_t*) (page + PAGE_SIZE - FREE_SPACE_SZ)) = freeBytes;
-    unsigned entryNum = pageNum % (MAX_NUM_OF_ENTRIES + 1) - 1;
-    PageNum headerNum = pageNum - (entryNum + 1);
-    byte header[PAGE_SIZE];
-    fileHandle.readPage(headerNum, header);
-    updatePageDirectory(header, entryNum, pageNum, freeBytes);
-    fileHandle.writePage(headerNum, header);
+    memset(data, 0, rbfm->getBytesOfNullFlags(attrNums.size()));
+
+    byte *pFlag = (byte*) data;
+    byte *pData = pFlag + rbfm->getBytesOfNullFlags(attrNums.size());
+    uint8_t nullFlag = 0x80;
+    for (auto attrNum : attrNums) {
+        Attribute attr = recordDescriptor[attrNum];
+        if (!rbfm->readField(page, recordOffset, attrNum, attr, pData)) { // null field
+            *pFlag = *pFlag | nullFlag;
+        } else {
+            switch (attr.type) {
+                case TypeInt:
+                case TypeReal:
+                    pData += attr.length;
+                    break;
+                case TypeVarChar:
+                    uint32_t length = *((uint32_t*) pData);
+                    pData += 4 + length;
+                    break;
+            }
+        }
+
+        if (nullFlag == 0x01) {
+            nullFlag = 0x80;
+            ++pFlag;
+        } else {
+            nullFlag = nullFlag >> 1;
+        }
+    }
 }

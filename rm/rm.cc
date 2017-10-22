@@ -75,7 +75,7 @@ RC RelationManager::createTable(const string &tableName, const vector<Attribute>
         return FAIL;
     }
     // write schema to "Tables" table
-    prepareTupleForTables(TABLES_ATTR_NUM, tableId, tableName, true, tuple);
+    prepareTupleForTables(TABLES_ATTR_NUM, tableId, tableName, false, tuple);
     insertTuple(TABLES_TABLE, tuple, rid);
     // write schema to "Columns" table
     int columnPosition = 0;
@@ -184,6 +184,13 @@ RC RelationManager::insertTuple(const string &tableName, const void *data, RID &
     if (rbfm->insertRecord(fileHandle, recordDescriptor, data, rid) == FAIL) {
         return FAIL;
     }
+
+    // print inserted record for debugging
+    void *dataToBeRead = malloc(200);
+    rbfm->readRecord(fileHandle, recordDescriptor, rid, dataToBeRead);
+    rbfm->printRecord(recordDescriptor, dataToBeRead);
+    free(dataToBeRead);
+
     rbfm->closeFile(fileHandle);
 
     return SUCCESS;
@@ -237,6 +244,15 @@ RC RelationManager::scan(const string &tableName,
         getAttributes(tableName, recordDescriptor);  // here recordDescriptor will be update within the fucntion
     }
     rbfm->scan(fileHandle, recordDescriptor, conditionAttribute, compOp, value, attributeNames, rbfm_scanIterator);
+    
+    // For Debugging: check if the rbfm_scanIterator works WE::
+    RID rid;
+    void *data = malloc(200);
+    if (rbfm_scanIterator.getNextRecord(rid, data) == RM_EOF){
+        return FAIL;
+    } 
+        
+        
     rm_scanIterator.setRbfmScanIterator(rbfm_scanIterator);
 
     rbfm->closeFile(fileHandle);

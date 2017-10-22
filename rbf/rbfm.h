@@ -108,7 +108,30 @@ private:
         return pageNum % (MAX_NUM_OF_ENTRIES + 1) == 0;
     }
 
-    bool compare(AttrType type, const void *op1, const void *op2, CompOp compOp);
+    bool compare(AttrType type, CompOp compOp, const void *op1, const void *op2);
+
+    void transmuteRecord(unsigned recordOffset, void *data);
+
+    template<typename T>
+    bool compare(CompOp compOp, T op1, T op2)
+    {
+        switch (compOp) {
+            case NO_OP:
+                return true;
+            case EQ_OP:
+                return op1 == op2;
+            case LT_OP:
+                return op1 < op2;
+            case LE_OP:
+                return op1 <= op2;
+            case GT_OP:
+                return op1 > op2;
+            case GE_OP:
+                return op1 >= op2;
+            case NE_OP:
+                return op1 != op2;
+        }
+    }
 };
 
 
@@ -177,91 +200,129 @@ protected:
 private:
     static RecordBasedFileManager *_rbf_manager;
 
-
-
     unsigned computeRecordLength(const vector<Attribute> &recordDescriptor, const void *data);
 
-    // Two cases for this function:
+    // Two scenarios for this function:
     // 1) if there is a free page, set pageNum and freeBytes normally
     // 2) if there is no free page, set pageNum to the page number of the next added page (>= current number of pages), and freeBytes to the initial value,
     // Note: when there is no free directory header page, this function will add a new one automatically
     RC seekFreePage(FileHandle &fileHandle, unsigned recordLength, PageNum &pageNum);
 
-    RC writeRecord(byte *page, unsigned recordOffset, const vector<Attribute> &recordDescriptor, const void *data);
+    RC updateFreeSpace(FileHandle &fileHandle, byte *page, PageNum pageNum, unsigned freeBytes);
 
-    void updateFreeSpace(FileHandle &fileHandle, byte *page, PageNum pageNum, unsigned freeBytes);
+    void writeRecord(byte *page, unsigned recordOffset, const vector<Attribute> &recordDescriptor, const void *data);
 
-    void transmuteRecord(byte *page, unsigned recordOffset, const vector<Attribute> &recordDescriptor, void *data);
-
-    unsigned getFreeBytes(const byte *page)
-    {
-        return *((uint16_t*) (page + PAGE_SIZE - FREE_SPACE_SZ));
-    }
-
-    unsigned getNumOfSlots(const byte *page)
-    {
-        return *((uint16_t*) (page + PAGE_SIZE - FREE_SPACE_SZ - NUM_OF_SLOTS_SZ));
-    }
-
-    void setNumOfSlots(byte *page, unsigned numOfSlots)
-    {
-        *((uint16_t*) (page + PAGE_SIZE - FREE_SPACE_SZ - NUM_OF_SLOTS_SZ)) = numOfSlots;
-    }
-
-    unsigned getRecordOffset(const byte *page, unsigned slotNum)
-    {
-        return *((uint16_t*) (page
-                              + PAGE_SIZE
-                              - FREE_SPACE_SZ - NUM_OF_SLOTS_SZ
-                              - slotNum*(SLOT_OFFSET_SZ + SLOT_LENGTH_SZ)
-                              - SLOT_LENGTH_SZ - SLOT_OFFSET_SZ));
-    }
-
-    void setRecordOffset(byte *page, unsigned slotNum, unsigned recordOffset)
-    {
-        *((uint16_t*) (page
-                       + PAGE_SIZE
-                       - FREE_SPACE_SZ
-                       - NUM_OF_SLOTS_SZ
-                       - slotNum*(SLOT_OFFSET_SZ + SLOT_LENGTH_SZ)
-                       - SLOT_LENGTH_SZ - SLOT_OFFSET_SZ)) = recordOffset;
-    }
-
-    unsigned getRecordLength(const byte *page, unsigned slotNum)
-    {
-        return *((uint16_t*) (page
-                              + PAGE_SIZE
-                              - FREE_SPACE_SZ - NUM_OF_SLOTS_SZ
-                              - slotNum*(SLOT_OFFSET_SZ + SLOT_LENGTH_SZ)
-                              - SLOT_LENGTH_SZ));
-    }
-
-    void setRecordLength(byte *page, unsigned slotNum, unsigned recordLength)
-    {
-        *((uint16_t*) (page
-                       + PAGE_SIZE
-                       - FREE_SPACE_SZ - NUM_OF_SLOTS_SZ
-                       - slotNum*(SLOT_OFFSET_SZ + SLOT_LENGTH_SZ)
-                       - SLOT_LENGTH_SZ)) = recordLength;
-    }
-
-    unsigned getBytesOfNullFlags(unsigned numOfFields)
-    {
-        return ceil(numOfFields / 8.0);
-    }
-
-    // return the offset relative to the begin of field data in the record
-    unsigned getFieldOffset(const byte *page, unsigned recordOffset, unsigned numOfFields, unsigned fieldNum)
-    {
-//        uint16_t prefixOffset = recordOffset + NUM_OF_FIELDS_SZ + (int) ceil(numOfFields / 8.0);
-        return *((uint16_t*) (page
-                              + recordOffset
-                              + NUM_OF_FIELDS_SZ
-                              + (int) ceil(numOfFields / 8.0)
-                              + fieldNum * FIELD_OFFSET_SZ));
-    }
+    void transmuteRecord(const byte *page, unsigned recordOffset, const vector<Attribute> &recordDescriptor, void *data);
 
     bool readField(const byte *page, unsigned recordOffset, unsigned fieldNum, const Attribute &attribute, void *data);
+
+    unsigned getFreeBytes(const byte *page);
+
+    unsigned getNumOfSlots(const byte *page);
+
+    void setNumOfSlots(byte *page, unsigned numOfSlots);
+
+    unsigned getRecordOffset(const byte *page, unsigned slotNum);
+
+    void setRecordOffset(byte *page, unsigned slotNum, unsigned recordOffset);
+
+    unsigned getRecordLength(const byte *page, unsigned slotNum);
+
+    void setRecordLength(byte *page, unsigned slotNum, unsigned recordLength);
+
+    unsigned getBytesOfNullFlags(unsigned numOfFields);
+
+    // return the begin offset relative to the begin of the record
+    unsigned getFieldBeginOffset(const byte *page, unsigned recordOffset, unsigned fieldNum, unsigned numOfFields);
+
+    // return the end offset relative to the begin of the record
+    unsigned getFieldEndOffset(const byte *page, unsigned recordOffset, unsigned fieldNum, unsigned numOfFields);
 };
+
+inline
+unsigned RecordBasedFileManager::getFreeBytes(const byte *page)
+{
+    return *((uint16_t*) (page + PAGE_SIZE - FREE_SPACE_SZ));
+}
+
+inline
+unsigned RecordBasedFileManager::getNumOfSlots(const byte *page)
+{
+    return *((uint16_t*) (page + PAGE_SIZE - FREE_SPACE_SZ - NUM_OF_SLOTS_SZ));
+}
+
+inline
+void RecordBasedFileManager::setNumOfSlots(byte *page, unsigned numOfSlots)
+{
+    *((uint16_t*) (page + PAGE_SIZE - FREE_SPACE_SZ - NUM_OF_SLOTS_SZ)) = numOfSlots;
+}
+
+inline
+unsigned RecordBasedFileManager::getRecordOffset(const byte *page, unsigned slotNum)
+{
+    return *((uint16_t*) (page
+                          + PAGE_SIZE
+                          - FREE_SPACE_SZ - NUM_OF_SLOTS_SZ
+                          - slotNum*(SLOT_OFFSET_SZ + SLOT_LENGTH_SZ)
+                          - SLOT_LENGTH_SZ - SLOT_OFFSET_SZ));
+}
+
+inline
+void RecordBasedFileManager::setRecordOffset(byte *page, unsigned slotNum, unsigned recordOffset)
+{
+    *((uint16_t*) (page
+                   + PAGE_SIZE
+                   - FREE_SPACE_SZ
+                   - NUM_OF_SLOTS_SZ
+                   - slotNum*(SLOT_OFFSET_SZ + SLOT_LENGTH_SZ)
+                   - SLOT_LENGTH_SZ - SLOT_OFFSET_SZ)) = recordOffset;
+}
+
+inline
+unsigned RecordBasedFileManager::getRecordLength(const byte *page, unsigned slotNum)
+{
+    return *((uint16_t*) (page
+                          + PAGE_SIZE
+                          - FREE_SPACE_SZ - NUM_OF_SLOTS_SZ
+                          - slotNum*(SLOT_OFFSET_SZ + SLOT_LENGTH_SZ)
+                          - SLOT_LENGTH_SZ));
+}
+
+inline
+void RecordBasedFileManager::setRecordLength(byte *page, unsigned slotNum, unsigned recordLength)
+{
+    *((uint16_t*) (page
+                   + PAGE_SIZE
+                   - FREE_SPACE_SZ - NUM_OF_SLOTS_SZ
+                   - slotNum*(SLOT_OFFSET_SZ + SLOT_LENGTH_SZ)
+                   - SLOT_LENGTH_SZ)) = recordLength;
+}
+
+inline
+unsigned RecordBasedFileManager::getBytesOfNullFlags(unsigned numOfFields)
+{
+    return ceil(numOfFields / 8.0);
+}
+
+inline
+unsigned RecordBasedFileManager::getFieldBeginOffset(const byte *page, unsigned recordOffset, unsigned fieldNum,
+                                                     unsigned numOfFields)
+{
+    unsigned preOffset = NUM_OF_FIELDS_SZ + getBytesOfNullFlags(numOfFields);
+    if (fieldNum == 0) {
+        return preOffset + numOfFields * FIELD_OFFSET_SZ;
+    }
+    unsigned beginOffset = *((uint16_t*) (page + recordOffset + preOffset + (fieldNum-1)*FIELD_OFFSET_SZ));
+    return preOffset + numOfFields * FIELD_OFFSET_SZ + beginOffset;
+}
+
+inline
+unsigned RecordBasedFileManager::getFieldEndOffset(const byte *page, unsigned recordOffset, unsigned fieldNum,
+                                                   unsigned numOfFields)
+{
+    unsigned preOffset = NUM_OF_FIELDS_SZ + getBytesOfNullFlags(numOfFields);
+    unsigned endOffset = *((uint16_t*) (page + recordOffset + preOffset + fieldNum*FIELD_OFFSET_SZ));
+    return preOffset + numOfFields * FIELD_OFFSET_SZ + endOffset;
+}
 
 #endif

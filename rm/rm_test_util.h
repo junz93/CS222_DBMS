@@ -366,7 +366,7 @@ RC createLargeTable(const string &tableName)
     assert(rc == success);
     cout << "***** A Large Table: " << tableName << " has created. *****" << endl << endl;
 
-    free(suffix);
+    //free(suffix);
 
     return 0;
 }
@@ -446,6 +446,16 @@ void readSizesFromDisk(vector<int> &sizes, int numRecords)
 		}
 		sizesFile.close();
 	}
+}
+
+/** Customized test aiding functions **/
+uint32_t getLastTableId() {
+    fstream file;
+    file.open("catalog_information", fstream::in | fstream::out | fstream::binary);
+    void *data = malloc(sizeof(uint32_t));
+    file.read((char *)data, sizeof(uint32_t));
+    file.close();
+    return *((uint32_t *) data);
 }
 
 #endif

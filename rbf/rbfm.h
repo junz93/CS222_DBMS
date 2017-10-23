@@ -95,6 +95,9 @@ private:
     CompOp compOp;
     const void *value;
 
+    // TODO: possible ways to store FineHandle in this class
+    // 1. Have a pointer to FileHandle as a member, and dynamically allocate a FileHandle object in RelationManager::scan
+    // 2. Have a FileHandle object as a member, and set it directly in RelationManager::scan
     FileHandle *fileHandle = nullptr;
     byte page[PAGE_SIZE];
     bool containData;
@@ -214,7 +217,9 @@ private:
 
     void transmuteRecord(const byte *page, unsigned recordOffset, const vector<Attribute> &recordDescriptor, void *data);
 
-    bool readField(const byte *page, unsigned recordOffset, unsigned fieldNum, const Attribute &attribute, void *data);
+    // Read the given field and write it to data
+    // return nullptr if the field is NULL, otherwise return a pointer to the position right after the written data
+    void* readField(const byte *page, unsigned recordOffset, unsigned fieldNum, const Attribute &attribute, void *data);
 
     unsigned getFreeBytes(const byte *page);
 

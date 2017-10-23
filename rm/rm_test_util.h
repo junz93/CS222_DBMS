@@ -366,8 +366,6 @@ RC createLargeTable(const string &tableName)
     assert(rc == success);
     cout << "***** A Large Table: " << tableName << " has created. *****" << endl << endl;
 
-    //free(suffix);
-
     return 0;
 }
 

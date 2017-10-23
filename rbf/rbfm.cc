@@ -1,6 +1,7 @@
 #include <cmath>
 #include <cstring>
 #include <iostream>
+#include <memory>
 #include "pfm.h"
 #include "rbfm.h"
 using namespace std;
@@ -414,27 +415,11 @@ RC RecordBasedFileManager::readAttribute(FileHandle &fileHandle,
     if (attrNum == numOfFields) {   // the given attribute name does not exist
         return -1;
     }
-    unsigned flagOffset = recordOffset + NUM_OF_FIELDS_SZ + attrNum / 8;
-    uint8_t nullFlag = 0x80;
-    nullFlag = nullFlag >> (attrNum % 8);
-    if (*((byte*) page + flagOffset) & nullFlag) {  // null field
+    byte *pData = (byte*) data + 1;
+    if (readField(page, recordOffset, attrNum, recordDescriptor[attrNum], pData) == nullptr) {
         memset(data, 0x80, 1);
     } else {
         memset(data, 0, 1);
-        byte *pData = (byte*) data + 1;
-        unsigned beginOffset = getFieldBeginOffset(page, recordOffset, attrNum, numOfFields);
-        unsigned fieldLength = getFieldEndOffset(page, recordOffset, attrNum, numOfFields) - beginOffset;
-        switch (recordDescriptor[attrNum].type) {
-            case TypeInt:
-            case TypeReal:
-                memcpy(pData, page + recordOffset + beginOffset, fieldLength);
-                break;
-            case TypeVarChar:
-                *((uint32_t*) pData) = fieldLength;
-                pData += 4;
-                memcpy(pData, page + recordOffset + beginOffset, fieldLength);
-                break;
-        }
     }
 
     return 0;
@@ -692,30 +677,33 @@ void RecordBasedFileManager::transmuteRecord(const byte *page,
     }
 }
 
-bool RecordBasedFileManager::readField(const byte *page, unsigned recordOffset, unsigned fieldNum,
-                                       const Attribute &attribute, void *data)
+void* RecordBasedFileManager::readField(const byte *page,
+                                        unsigned recordOffset,
+                                        unsigned fieldNum,
+                                        const Attribute &attribute,
+                                        void *data)
 {
     const byte *pFlag = page + recordOffset + NUM_OF_FIELDS_SZ + fieldNum / 8;
-    uint8_t nullFlag = 0x80;
-    nullFlag = nullFlag >> (fieldNum % 8);
+    uint8_t nullFlag = 0x80 >> (fieldNum % 8);
     if (*pFlag & nullFlag) {
-        return false;
+        return nullptr;
     }
 
     unsigned numOfFields = *((uint16_t*) (page + recordOffset));
     unsigned beginOffset = getFieldBeginOffset(page, recordOffset, fieldNum, numOfFields);
     unsigned fieldLength = getFieldEndOffset(page, recordOffset, fieldNum, numOfFields) - beginOffset;
+    byte *pData = (byte*) data;
     switch (attribute.type) {
         case TypeInt:
         case TypeReal:
-            memcpy(data, page + recordOffset + beginOffset, fieldLength);
             break;
         case TypeVarChar:
-            *((uint32_t*) data) = fieldLength;
-            memcpy((byte*) data + 4, page + recordOffset + beginOffset, fieldLength);
+            *((uint32_t*) pData) = fieldLength;
+            pData += 4;
             break;
     }
-    return true;
+    memcpy(pData, page + recordOffset + beginOffset, fieldLength);
+    return pData + fieldLength;
 }
 
 RBFM_ScanIterator::RBFM_ScanIterator(): rbfm(RecordBasedFileManager::instance())
@@ -755,20 +743,17 @@ RC RBFM_ScanIterator::getNextRecord(RID &rid, void *data)
                 continue;
             }
 
-            byte *field = new byte[recordLength];
+            unique_ptr<byte[]> field(new byte[recordLength]);
             Attribute conditionAttr = recordDescriptor[conditionAttrNum];
-            if (!rbfm->readField(page, recordOffset, conditionAttrNum, conditionAttr, field)) {
-                delete[] field;
-                field = nullptr;
+            if (rbfm->readField(page, recordOffset, conditionAttrNum, conditionAttr, field.get()) == nullptr) {
+                field.reset();
             }
-            if (compare(conditionAttr.type, compOp, field, value)) {
+            if (compare(conditionAttr.type, compOp, field.get(), value)) {
                 transmuteRecord(recordOffset, data);
                 rid.pageNum = pageNum;
                 rid.slotNum = slotNum++;
-                delete[] field;
                 return 0;
             }
-            delete[] field;
         }
 
         // have scanned all slots in this page
@@ -826,19 +811,11 @@ void RBFM_ScanIterator::transmuteRecord(unsigned recordOffset, void *data)
     uint8_t nullFlag = 0x80;
     for (auto attrNum : attrNums) {
         Attribute attr = recordDescriptor[attrNum];
-        if (!rbfm->readField(page, recordOffset, attrNum, attr, pData)) { // null field
+        void *pNext = rbfm->readField(page, recordOffset, attrNum, attr, pData);
+        if (pNext == nullptr) {
             *pFlag = *pFlag | nullFlag;
         } else {
-            switch (attr.type) {
-                case TypeInt:
-                case TypeReal:
-                    pData += attr.length;
-                    break;
-                case TypeVarChar:
-                    uint32_t length = *((uint32_t*) pData);
-                    pData += 4 + length;
-                    break;
-            }
+            pData = (byte*) pNext;
         }
 
         if (nullFlag == 0x01) {

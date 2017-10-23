@@ -3,6 +3,7 @@
 
 #include <string>
 #include <vector>
+#include <cassert>
 #include <climits>
 #include <cmath>
 
@@ -19,6 +20,7 @@ const unsigned SLOT_OFFSET_SZ = 2;       // size of space storing the offset of 
 const unsigned SLOT_LENGTH_SZ = 2;       // size of space storing the length of a record in a page
 const unsigned PAGE_NUM_SZ = sizeof(PageNum);
 const unsigned SLOT_NUM_SZ = NUM_OF_SLOTS_SZ;
+const unsigned POINTER_SZ = PAGE_NUM_SZ + SLOT_NUM_SZ;
 
 const unsigned MAX_NUM_OF_ENTRIES = (PAGE_SIZE - PAGE_NUM_SZ) / (PAGE_NUM_SZ + FREE_SPACE_SZ);  // max number of entries in a directory page
 
@@ -98,7 +100,7 @@ private:
     // TODO: possible ways to store FineHandle in this class
     // 1. Have a pointer to FileHandle as a member, and dynamically allocate a FileHandle object in RelationManager::scan
     // 2. Have a FileHandle object as a member, and set it directly in RelationManager::scan
-    FileHandle *fileHandle = nullptr;
+    FileHandle *fileHandle = nullptr;   // the FileHandle object should be dynamically allocated
     byte page[PAGE_SIZE];
     bool containData;
     PageNum numOfPages;
@@ -313,6 +315,8 @@ inline
 unsigned RecordBasedFileManager::getFieldBeginOffset(const byte *page, unsigned recordOffset, unsigned fieldNum,
                                                      unsigned numOfFields)
 {
+    assert(fieldNum < numOfFields);
+
     unsigned preOffset = NUM_OF_FIELDS_SZ + getBytesOfNullFlags(numOfFields);
     if (fieldNum == 0) {
         return preOffset + numOfFields * FIELD_OFFSET_SZ;
@@ -325,6 +329,8 @@ inline
 unsigned RecordBasedFileManager::getFieldEndOffset(const byte *page, unsigned recordOffset, unsigned fieldNum,
                                                    unsigned numOfFields)
 {
+    assert(fieldNum < numOfFields);
+
     unsigned preOffset = NUM_OF_FIELDS_SZ + getBytesOfNullFlags(numOfFields);
     unsigned endOffset = *((uint16_t*) (page + recordOffset + preOffset + fieldNum*FIELD_OFFSET_SZ));
     return preOffset + numOfFields * FIELD_OFFSET_SZ + endOffset;

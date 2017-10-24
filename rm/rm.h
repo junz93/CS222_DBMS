@@ -104,6 +104,7 @@ private:
     RecordBasedFileManager *rbfm = RecordBasedFileManager::instance();
 
     /** private functions called by createCatalog(...) **/
+    RC insertCatalogTuple(const string &tableName, const void *data, RID &rid);
     void initializeTablesTable(); // insert essential tuples to "Tables" table as an initialization of catalog
     void initializeColumnsTable(); // insert essential tuples to "Columns" table as an initialization of catalog
 
@@ -118,6 +119,8 @@ private:
     RC preparePositionAttributeMap(int tableId, unordered_map<int, Attribute> &positionAttributeMap);
 
     RC deleteTargetTableTuplesInColumnsTable(int tableId);
+
+    RC deleteCatalogTuple(const string &tableName, const RID &rid);
     
     /** private functions for general use **/
     void updateLastTableId(uint32_t tableId);

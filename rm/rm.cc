@@ -57,13 +57,13 @@ RC RelationManager::createTable(const string &tableName, const vector<Attribute>
     }
     // write schema to "Tables" table
     prepareTupleForTables(TABLES_ATTR_NUM, tableId, tableName, false, tuple);
-    insertTuple(TABLES_TABLE, tuple, rid);
+    insertCatalogTuple(TABLES_TABLE, tuple, rid);
     // write schema to "Columns" table
     int columnPosition = 0;
     for (const Attribute &attribute : attrs) {
         prepareTupleForColumns(COLUMNS_ATTR_NUM, tableId, attribute.name, attribute.type, attribute.length,
                                ++columnPosition, false, tuple);
-        insertTuple(COLUMNS_TABLE, tuple, rid);
+        insertCatalogTuple(COLUMNS_TABLE, tuple, rid);
     }
     // Plus last table id by 1 in catalog_information file
     updateLastTableId(tableId);
@@ -81,7 +81,7 @@ RC RelationManager::deleteTable(const string &tableName) {
 
     // delete schema in Catalog
     if (prepareTableIdAndTablesRid(tableName, tableId, rid) == FAIL) { return FAIL; }
-    if (deleteTuple(TABLES_TABLE, rid) == FAIL) {return FAIL;}
+    if (deleteCatalogTuple(TABLES_TABLE, rid) == FAIL) {return FAIL;}
     if (deleteTargetTableTuplesInColumnsTable(tableId) == FAIL) {return FAIL;}
     // delete table file
     if (rbfm->destroyFile(tableName) == FAIL) { return FAIL; }
@@ -116,6 +116,10 @@ RC RelationManager::insertTuple(const string &tableName, const void *data, RID &
     FileHandle fileHandle;
     vector<Attribute> recordDescriptor;
 
+    if (isSystemTable(tableName)) {
+        return FAIL;
+    }
+
     if (rbfm->openFile(tableName, fileHandle) == FAIL) {
         return FAIL;
     }
@@ -141,7 +145,7 @@ RC RelationManager::deleteTuple(const string &tableName, const RID &rid) {
     FileHandle fileHandle;
     vector<Attribute> recordDescriptor;
 
-    if (isSystemTuple(tableName, rid)) {
+    if (isSystemTable(tableName) || isSystemTuple(tableName, rid)) {
         return FAIL;
     }
     if (rbfm->openFile(tableName, fileHandle) == FAIL) {
@@ -160,9 +164,10 @@ RC RelationManager::updateTuple(const string &tableName, const void *data, const
     FileHandle fileHandle;
     vector<Attribute> recordDescriptor;
 
-    if (isSystemTuple(tableName, rid)) {
+    if (isSystemTable(tableName) || isSystemTuple(tableName, rid)) {
         return FAIL;
     }
+
     if (rbfm->openFile(tableName, fileHandle) == FAIL) {
         return FAIL;
     }
@@ -235,15 +240,40 @@ RC RelationManager::addAttribute(const string &tableName, const Attribute &attr)
 }
 
 /** private functions called by createCatalog(...) **/
+RC RelationManager::insertCatalogTuple(const string &tableName, const void *data, RID &rid) {
+    FileHandle fileHandle;
+    vector<Attribute> recordDescriptor;
+
+    if (rbfm->openFile(tableName, fileHandle) == FAIL) {
+        return FAIL;
+    }
+
+    prepareRecordDescriptor(tableName, recordDescriptor);
+
+    if (rbfm->insertRecord(fileHandle, recordDescriptor, data, rid) == FAIL) {
+        return FAIL;
+    }
+
+    // print inserted record for debugging
+    void *dataToBeRead = malloc(PAGE_SIZE);
+    rbfm->readRecord(fileHandle, recordDescriptor, rid, dataToBeRead);
+    rbfm->printRecord(recordDescriptor, dataToBeRead);
+    free(dataToBeRead);
+
+    rbfm->closeFile(fileHandle);
+
+    return SUCCESS;
+}
+
 void RelationManager::initializeTablesTable() {
     RID rid;
     void *tuple = malloc(PAGE_SIZE);
 
     prepareTupleForTables(TABLES_ATTR_NUM, TABLES_ID, TABLES_TABLE, true, tuple);
-    insertTuple(TABLES_TABLE, tuple, rid);
+    insertCatalogTuple(TABLES_TABLE, tuple, rid);
 
     prepareTupleForTables(TABLES_ATTR_NUM, COLUMNS_ID, COLUMNS_TABLE, true, tuple);
-    insertTuple(TABLES_TABLE, tuple, rid);
+    insertCatalogTuple(TABLES_TABLE, tuple, rid);
 }
 
 void RelationManager::initializeColumnsTable() {
@@ -251,26 +281,26 @@ void RelationManager::initializeColumnsTable() {
     void *tuple = malloc(PAGE_SIZE);
 
     prepareTupleForColumns(COLUMNS_ATTR_NUM, TABLES_ID, TABLE_ID, TypeInt, 4, 1, true, tuple);
-    insertTuple(COLUMNS_TABLE, tuple, rid);
+    insertCatalogTuple(COLUMNS_TABLE, tuple, rid);
     prepareTupleForColumns(COLUMNS_ATTR_NUM, TABLES_ID, TABLE_NAME, TypeVarChar, 50, 2, true, tuple);
-    insertTuple(COLUMNS_TABLE, tuple, rid);
+    insertCatalogTuple(COLUMNS_TABLE, tuple, rid);
     prepareTupleForColumns(COLUMNS_ATTR_NUM, TABLES_ID, FILE_NAME, TypeVarChar, 50, 3, true, tuple);
-    insertTuple(COLUMNS_TABLE, tuple, rid);
+    insertCatalogTuple(COLUMNS_TABLE, tuple, rid);
     prepareTupleForColumns(COLUMNS_ATTR_NUM, TABLES_ID, SYSTEM_FLAG, TypeInt, 4, 4, true, tuple);
-    insertTuple(COLUMNS_TABLE, tuple, rid);
+    insertCatalogTuple(COLUMNS_TABLE, tuple, rid);
 
     prepareTupleForColumns(COLUMNS_ATTR_NUM, COLUMNS_ID, TABLE_ID, TypeInt, 4, 1, true, tuple);
-    insertTuple(COLUMNS_TABLE, tuple, rid);
+    insertCatalogTuple(COLUMNS_TABLE, tuple, rid);
     prepareTupleForColumns(COLUMNS_ATTR_NUM, COLUMNS_ID, COLUMN_NAME, TypeVarChar, 50, 2, true, tuple);
-    insertTuple(COLUMNS_TABLE, tuple, rid);
+    insertCatalogTuple(COLUMNS_TABLE, tuple, rid);
     prepareTupleForColumns(COLUMNS_ATTR_NUM, COLUMNS_ID, COLUMN_TYPE, TypeInt, 4, 3, true, tuple);
-    insertTuple(COLUMNS_TABLE, tuple, rid);
+    insertCatalogTuple(COLUMNS_TABLE, tuple, rid);
     prepareTupleForColumns(COLUMNS_ATTR_NUM, COLUMNS_ID, COLUMN_LENGTH, TypeInt, 4, 4, true, tuple);
-    insertTuple(COLUMNS_TABLE, tuple, rid);
+    insertCatalogTuple(COLUMNS_TABLE, tuple, rid);
     prepareTupleForColumns(COLUMNS_ATTR_NUM, COLUMNS_ID, COLUMN_POSITION, TypeInt, 4, 5, true, tuple);
-    insertTuple(COLUMNS_TABLE, tuple, rid);
+    insertCatalogTuple(COLUMNS_TABLE, tuple, rid);
     prepareTupleForColumns(COLUMNS_ATTR_NUM, COLUMNS_ID, SYSTEM_FLAG, TypeInt, 4, 6, true, tuple);
-    insertTuple(COLUMNS_TABLE, tuple, rid);
+    insertCatalogTuple(COLUMNS_TABLE, tuple, rid);
 }
 
 /** private functions called by insertTuple(...) **/
@@ -404,11 +434,29 @@ RC RelationManager::deleteTargetTableTuplesInColumnsTable(int tableId) {
         return FAIL;
     }
     while (rm_scanIterator.getNextTuple(rid, returnedData) != RM_EOF) {
-        //printTuple(recordDescriptor, returnedData);
-        deleteTuple(COLUMNS_TABLE, rid);
+        deleteCatalogTuple(COLUMNS_TABLE, rid);
     }
     free(returnedData);
     rm_scanIterator.close();
+    return SUCCESS;
+}
+
+RC RelationManager::deleteCatalogTuple(const string &tableName, const RID &rid) {
+    FileHandle fileHandle;
+    vector<Attribute> recordDescriptor;
+
+    if (isSystemTuple(tableName, rid)) {
+        return FAIL;
+    }
+    if (rbfm->openFile(tableName, fileHandle) == FAIL) {
+        return FAIL;
+    }
+    prepareRecordDescriptor(tableName, recordDescriptor);
+    if (rbfm->deleteRecord(fileHandle, recordDescriptor, rid) == FAIL) {
+        return FAIL;
+    }
+    rbfm->closeFile(fileHandle);
+
     return SUCCESS;
 }
 

@@ -112,8 +112,8 @@ private:
 
     void prepareRecordDescriptorForColumnsTable(vector<Attribute> &recordDescriptor);
 
-    /** private funcions for reading and writing metadata **/
-    RC prepareTableIdAndRid(const string tableName, int &tableId, RID &rid);
+    /** private functions for reading and writing metadata **/
+    RC prepareTableIdAndTablesRid(const string tableName, int &tableId, RID &rid);
 
     RC preparePositionAttributeMap(int tableId, unordered_map<int, Attribute> &positionAttributeMap);
 

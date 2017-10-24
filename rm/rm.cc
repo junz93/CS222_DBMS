@@ -75,25 +75,17 @@ RC RelationManager::deleteTable(const string &tableName) {
     int tableId;
     RID rid;
 
-    vector<Attribute> recordDescriptor;
-    prepareRecordDescriptorForTablesTable(recordDescriptor);
-    void *returnedData;
-
     if (isSystemTable(tableName)) {
         return FAIL;
     }
 
-    //TODO: delete schema in Catalog
-    if (prepareTableIdAndRid(tableName, tableId, rid) == FAIL) { return FAIL; }
-    //readTuple(TABLES_TABLE, rid, returnedData);
-    //printTuple(recordDescriptor, returnedData);
+    // delete schema in Catalog
+    if (prepareTableIdAndTablesRid(tableName, tableId, rid) == FAIL) { return FAIL; }
     if (deleteTuple(TABLES_TABLE, rid) == FAIL) {return FAIL;}
     if (deleteTargetTableTuplesInColumnsTable(tableId) == FAIL) {return FAIL;}
-
+    // delete table file
     if (rbfm->destroyFile(tableName) == FAIL) { return FAIL; }
-    // Minus last table id by 1 in catalog_information file
-//    int tableId = (int) getLastTableId() - 1;
-//    updateLastTableId(tableId);
+
 
     return SUCCESS;
 }
@@ -103,7 +95,7 @@ RC RelationManager::getAttributes(const string &tableName, vector<Attribute> &at
     unordered_map<int, Attribute> positionAttributeMap;
     RID rid;
 
-    if (prepareTableIdAndRid(tableName, tableId, rid) == FAIL) { return FAIL; }
+    if (prepareTableIdAndTablesRid(tableName, tableId, rid) == FAIL) { return FAIL; }
     if (preparePositionAttributeMap(tableId, positionAttributeMap) == FAIL) { return FAIL; }
 
     // prepare attrs ordered by column position
@@ -135,7 +127,7 @@ RC RelationManager::insertTuple(const string &tableName, const void *data, RID &
     }
 
     // print inserted record for debugging
-    void *dataToBeRead = malloc(200);
+    void *dataToBeRead = malloc(PAGE_SIZE);
     rbfm->readRecord(fileHandle, recordDescriptor, rid, dataToBeRead);
     rbfm->printRecord(recordDescriptor, dataToBeRead);
     free(dataToBeRead);
@@ -341,8 +333,8 @@ void RelationManager::prepareRecordDescriptorForColumnsTable(vector<Attribute> &
 
 }
 
-/** private funcions for reading and writing metadata **/
-RC RelationManager::prepareTableIdAndRid(const string tableName, int &tableId, RID &rid) {
+/** private functions for reading and writing metadata **/
+RC RelationManager::prepareTableIdAndTablesRid(const string tableName, int &tableId, RID &rid) {
     RM_ScanIterator rm_scanIterator;
     void *returnedData = malloc(200);
     vector<string> attributeNames;
@@ -444,7 +436,7 @@ bool RelationManager::isSystemTable(const string tableName) {
 }
 
 bool RelationManager::isSystemTuple(const string tableName, const RID rid) {
-    void *returnedData;
+    void *returnedData = malloc(PAGE_SIZE);
 
     if (tableName != TABLES_TABLE && tableName != COLUMNS_TABLE) {
         return false;
@@ -453,6 +445,7 @@ bool RelationManager::isSystemTuple(const string tableName, const RID rid) {
     if (*((int *) returnedData) == 0) {
         return false;
     }
+    free(returnedData);
 
     return true;
 }

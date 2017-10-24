@@ -4,6 +4,7 @@
 
 #include <string>
 #include <vector>
+#include <unordered_map>
 
 #include "../rbf/rbfm.h"
 
@@ -11,8 +12,13 @@ using namespace std;
 
 # define RM_EOF (-1)  // end of a scan operator
 
+class RelationManager;
+
 // RM_ScanIterator is an iteratr to go through tuples
 class RM_ScanIterator {
+
+    friend class RelationManager;
+
 public:
     RM_ScanIterator() {};
 
@@ -22,8 +28,6 @@ public:
     RC getNextTuple(RID &rid, void *data) { return rbfm_scanIterator.getNextRecord(rid, data); };
 
     RC close() { return rbfm_scanIterator.close(); };
-
-    void setRbfmScanIterator(RBFM_ScanIterator rbfm_si) { rbfm_scanIterator = rbfm_si; };
 
 private:
     RBFM_ScanIterator rbfm_scanIterator;
@@ -104,14 +108,28 @@ private:
     void initializeColumnsTable(); // insert essential tuples to "Columns" table as an initialization of catalog
 
     /** private functions called by insertTuple(...) **/
-    vector<Attribute> getRecordDescriptorForTablesTable();
+    void prepareRecordDescriptorForTablesTable(vector<Attribute> &recordDescriptor);
 
-    vector<Attribute> getRecordDescriptorForColumnsTable();
+    void prepareRecordDescriptorForColumnsTable(vector<Attribute> &recordDescriptor);
 
+    /** private funcions for reading and writing metadata **/
+    RC prepareTableIdAndRid(const string tableName, int &tableId, RID &rid);
+
+    RC preparePositionAttributeMap(int tableId, unordered_map<int, Attribute> &positionAttributeMap);
+
+    RC deleteTargetTableTuplesInColumnsTable(int tableId);
+    
     /** private functions for general use **/
     void updateLastTableId(uint32_t tableId);
 
     uint32_t getLastTableId();
+
+    bool isSystemTable(const string tableName);
+
+    bool isSystemTuple(const string tableName, const RID rid);
+
+    RC prepareRecordDescriptor(const string tableName, vector<Attribute> &recordDescriptor);
+
 };
 
 #endif

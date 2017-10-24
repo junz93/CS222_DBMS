@@ -88,5 +88,20 @@ void prepareTupleForColumns(int attributeCount, const int tableID, const string 
     offset += sizeof(int);
 }
 
+// get the value of condition attribute for scan function
+void *getScanValue(const string typeVarCharValue) {
+    void *value = malloc(typeVarCharValue.size() + 4);
+    *(int *) (value) = typeVarCharValue.size();
+    memcpy((char *) value + 4, typeVarCharValue.c_str(), typeVarCharValue.size());
+    return value;
+}
+
+void *getScanValue(int &typeIntValue) {
+    return &typeIntValue;
+}
+
+void *getScanValue(float &typeRealValue) {
+    return &typeRealValue;
+}
 
 #endif //CS222_UTIL_H

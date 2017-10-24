@@ -10,9 +10,9 @@ const byte FILE_IDEN = 0xaa;
 #define SUCCESS 0
 #define FAIL -1
 
-#include <string>
 #include <climits>
 #include <fstream>
+#include <string>
 using namespace std;
 
 class FileHandle;

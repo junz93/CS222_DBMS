@@ -1,3 +1,4 @@
+#include <algorithm>
 #include <cmath>
 #include <cstring>
 #include <iostream>
@@ -54,7 +55,6 @@ RC RecordBasedFileManager::insertRecord(FileHandle &fileHandle,
                                         RID &rid)
 {
     // compute the length of the new record
-//    auto recordLength = computeRecordLength(recordDescriptor, data);
     unsigned recordLength = max(POINTER_SZ, computeRecordLength(recordDescriptor, data));
     if (recordLength + SLOT_OFFSET_SZ + SLOT_LENGTH_SZ > PAGE_SIZE - FREE_SPACE_SZ - NUM_OF_SLOTS_SZ) {
         return -1;
@@ -492,9 +492,7 @@ unsigned RecordBasedFileManager::computeRecordLength(const vector<Attribute> &re
     return recordLength;
 }
 
-RC RecordBasedFileManager::seekFreePage(FileHandle &fileHandle,
-                                        unsigned recordLength,
-                                        PageNum &pageNum)
+RC RecordBasedFileManager::seekFreePage(FileHandle &fileHandle, unsigned size, PageNum &pageNum)
 {
     auto numOfPages = fileHandle.getNumberOfPages();
     bool hasFreeHeader = false;
@@ -512,7 +510,7 @@ RC RecordBasedFileManager::seekFreePage(FileHandle &fileHandle,
                 break;
             }
             unsigned freeBytes = *((uint16_t*) (header + 6*entryNum + sizeof(PageNum)));
-            if (freeBytes >= recordLength) {
+            if (freeBytes >= size) {
                 hasFreePage = true;
                 break;
             }
@@ -544,9 +542,6 @@ RC RecordBasedFileManager::seekFreePage(FileHandle &fileHandle,
             // set number for new record page
             pageNum = numOfPages;
         }
-
-        // initialize freeBytes for new record page
-//        freeBytes = PAGE_SIZE - FREE_SPACE_SZ - NUM_OF_SLOTS_SZ;
     }
 
     return 0;

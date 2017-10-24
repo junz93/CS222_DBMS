@@ -1,11 +1,11 @@
 #ifndef _rbfm_h_
 #define _rbfm_h_
 
-#include <string>
-#include <vector>
 #include <cassert>
 #include <climits>
 #include <cmath>
+#include <string>
+#include <vector>
 
 #include "../rbf/pfm.h"
 
@@ -211,7 +211,7 @@ private:
     // 1) if there is a free page, set pageNum and freeBytes normally
     // 2) if there is no free page, set pageNum to the page number of the next added page (>= current number of pages), and freeBytes to the initial value,
     // Note: when there is no free directory header page, this function will add a new one automatically
-    RC seekFreePage(FileHandle &fileHandle, unsigned recordLength, PageNum &pageNum);
+    RC seekFreePage(FileHandle &fileHandle, unsigned size, PageNum &pageNum);
 
     RC updateFreeSpace(FileHandle &fileHandle, byte *page, PageNum pageNum, unsigned freeBytes);
 

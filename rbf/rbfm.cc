@@ -730,12 +730,18 @@ RC RBFM_ScanIterator::getNextRecord(RID &rid, void *data)
                 continue;
             }
 
-            unique_ptr<byte[]> field(new byte[recordLength]);
-            Attribute conditionAttr = recordDescriptor[conditionAttrNum];
-            if (rbfm->readField(page, recordOffset, conditionAttrNum, conditionAttr, field.get()) == nullptr) {
-                field.reset();
+            bool compareResult;
+            if (compOp == NO_OP) {
+                compareResult = true;
+            } else {
+                unique_ptr<byte[]> field(new byte[recordLength]);
+                Attribute conditionAttr = recordDescriptor[conditionAttrNum];
+                if (rbfm->readField(page, recordOffset, conditionAttrNum, conditionAttr, field.get()) == nullptr) {
+                    field.reset();
+                }
+                compareResult = compare(conditionAttr.type, compOp, field.get(), value);
             }
-            if (compare(conditionAttr.type, compOp, field.get(), value)) {
+            if (compareResult) {
                 transmuteRecord(recordOffset, data);
                 rid.pageNum = pageNum;
                 rid.slotNum = slotNum++;

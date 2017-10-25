@@ -13,37 +13,54 @@ gcc version : 5.4.0
 
 
 3. Internal Record Format
-- Show your record format design and describe how your design satisfies O(1) field access. If not, just mention that your team hasn't implemented this feature.
-- Describe how you store a VarChar field.
-- Describe how you deal with an update and delete.
+The first 2 bytes store the number of fields in this record.
+The following ceil(numOfFields / 8) bytes store null indicators for all the fields.
+The following 2*numOfFields bytes store the end offsets of all the fields.
+The following space stores the actual field data.
+
+O(1) field access:
+We can get the end offset of any field in O(1) time, because we have random access to it. In order to access field i,
+we get the end offset of field i-1 as the begin offset of field i. The length of field i is the difference between
+its end offset and begin offset. Since we can get the begin offset and length of field i in O(1) time, the access time
+is also O(1).
+
+Storage of Varchar field:
+The data of a varchar field is stored the same as other field types. The begin offset of a varchar field is the end offset
+of its previous neighbor, and the length can be calculated as the difference between the end offset and the begin offset
+of the varchar field.
 
 Update operation:
-When the updated record cannot fit into the original page, we move it to another page with enough free space, and leave a
-tombstone (pointer) in the original page. The pointer consists of two parts. The first part uses 4 bytes to store the actual
-page number, and the second part uses 2 bytes to store the slot number in the actual page. Also, in this case the record offset
-in the slot directory of the original page becomes the offset of the pointer. In order to distinguish this special case
-from the ordinary one, we set the offset to PAGE_SIZE + (offset of pointer).
+1) If the updated record can fit into the original page, we update it in place, and shift all the records after it to keep
+the free space in the middle part of the page.
+2) Otherwise, we move the updated record to another page with enough free space, and replace the original record with a
+pointer to the updated one. The pointer consists of two parts: page number (4 bytes) and slot number (2 bytes).
+
+Delete operation:
+When deleting a record, we shift all the records after it to left to keep the free space in the middle part of the page.
 
 
 4. Page Format
-- Show your page format design.
-- Describe how you deal with an update and delete.
+The first part of a page stores the records.
+The second part of a page is the free space that can be used to insert new records.
+The third (last) part of a page stores the slot directory.
+The last 2 bytes of the slot directory store the size of free space in this page.
+The second last 2 bytes of the slot directory store the number of slots in this page.
+The remainder of the slot directory stores the offset (2 bytes) and length (2 bytes) of each records in this page
 
-Slot directory design:
-1) If record length == 0, this record has been deleted.
-2) If record offset >= PAGE_SIZE, this record has been moved to another page (due to the update operation).
+Update operation:
+1) If the updated record can fit into the original page, we update the slot length and free space in the slot directory.
+2) Otherwise, after moving the updated record to another page, we allocate a slot and set offset and length in slot
+   directory of that page.
+   Besides, in the original page, we also update the slot length, and add PAGE_SIZE (4096) to the original slot offset
+   to indicate that the slot now stores a pointer to the actual record (not a record).
+   Lastly, we update the free space of the original page and the new page.
 
 Delete operation:
-1) Set record length to 0 to indicate that this record is deleted.
-2) If record offset < PAGE_SIZE, shift left to remove this record, so that we always keep the free space in the middle part of this page.
-3) If record offset >= PAGE_SIZE, find the actual page containing this record, and shift left to remove this record.
-   Also, shift left to remove the tombstone (pointer) of this record in the original page.
-4) Update the free space in the slot directory of related pages (original and and actual page)
+We set the slot length to 0 in the slot directory to indicate that this record is deleted, and update the free space.
 
 
 5. File Format
 - Show your file format design
-
 
 
 6. Implementation Detail

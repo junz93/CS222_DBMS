@@ -8,7 +8,7 @@ typedef char byte;
 const byte FILE_IDEN = 0xaa;
 #define PAGE_SIZE 4096
 #define SUCCESS 0
-#define FAIL -1
+#define FAIL (-1)
 
 #include <climits>
 #include <fstream>

@@ -5,4 +5,4 @@ cmake-build-debug/
 *.o
 *.a
 my_test.cpp
-rmtest_p2.cc
+*.sh

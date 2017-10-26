@@ -436,7 +436,6 @@ void readSizesFromDisk(vector<int> &sizes, int numRecords)
 
     ifstream sizesFile("sizes_file", ios::in | ios::binary);
     if (sizesFile.is_open()) {
-
         sizesFile.seekg(0,ios::beg);
         for (int i = 0; i < numRecords; i++) {
             sizesFile.read(reinterpret_cast<char*>(&size), sizeof(int));
@@ -445,5 +444,6 @@ void readSizesFromDisk(vector<int> &sizes, int numRecords)
         sizesFile.close();
     }
 }
+
 
 #endif

@@ -4,7 +4,7 @@
 
 #include <string>
 #include <vector>
-#include <unordered_map>
+#include <queue>
 
 #include "../rbf/rbfm.h"
 
@@ -105,6 +105,18 @@ private:
 
     RecordBasedFileManager *rbfm = RecordBasedFileManager::instance();
 
+    struct AttributeNode {
+        int columnPosition;
+        Attribute attribute;
+        AttributeNode(int coloumnPos, Attribute attr) : columnPosition(coloumnPos), attribute(attr) {}
+    };
+
+    struct cmp{
+        bool operator()(AttributeNode a, AttributeNode b){
+            return a.columnPosition > b.columnPosition;
+        }
+    };
+
     /** private functions called by createCatalog(...) **/
     RC insertCatalogTuple(const string &tableName, const void *data, RID &rid);
 
@@ -126,7 +138,10 @@ private:
 
     RC prepareTableIdCurrentVersionAndTablesRid(const string tableName, int &tableId, int &version, RID &rid);
 
-    RC preparePositionAttributeMap(int tableId, const int version, unordered_map<int, Attribute> &positionAttributeMap);
+    //RC preparePositionAttributeMap(int tableId, const int version, unordered_map<int, Attribute> &positionAttributeMap);
+
+    RC prepareAttributeNodeMinHeap(int tableId, const int version,
+                                   priority_queue<AttributeNode, vector<AttributeNode>, cmp> &attributeNodeHeap);
 
     RC deleteTargetTableTuplesInColumnsTable(int tableId);
 

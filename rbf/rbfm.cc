@@ -35,14 +35,14 @@ RC RecordBasedFileManager::destroyFile(const string &fileName) {
 
 RC RecordBasedFileManager::openFile(const string &fileName, FileHandle &fileHandle) {
     if (PagedFileManager::instance()->openFile(fileName, fileHandle) == -1) {
-        return -1;
+        return FAIL;
     }
     if (fileHandle.getNumberOfPages() == 0) {
         // add a new directory header page
         byte header[PAGE_SIZE] = {0};
         fileHandle.appendPage(header);
     }
-    return 0;
+    return SUCCESS;
 }
 
 RC RecordBasedFileManager::closeFile(FileHandle &fileHandle) {
@@ -57,7 +57,7 @@ RC RecordBasedFileManager::insertRecord(FileHandle &fileHandle,
     // compute the length of the new record
     unsigned recordLength = max(POINTER_SZ, computeRecordLength(recordDescriptor, data));
     if (recordLength + SLOT_OFFSET_SZ + SLOT_LENGTH_SZ > PAGE_SIZE - FREE_SPACE_SZ - NUM_OF_SLOTS_SZ) {
-        return -1;
+        return FAIL;
     }
 
     // look for a page with enough free space for the new record
@@ -116,7 +116,7 @@ RC RecordBasedFileManager::insertRecord(FileHandle &fileHandle,
         fileHandle.writePage(pageNum, page);
     }
 
-    return 0;
+    return SUCCESS;
 }
 
 RC RecordBasedFileManager::readRecord(FileHandle &fileHandle,
@@ -128,7 +128,7 @@ RC RecordBasedFileManager::readRecord(FileHandle &fileHandle,
     fileHandle.readPage(rid.pageNum, page);
     unsigned recordLength = getRecordLength(page, rid.slotNum);
     if (recordLength == 0) {    // the record in this slot is invalid (deleted)
-        return -1;
+        return FAIL;
     }
 
     unsigned recordOffset = getRecordOffset(page, rid.slotNum);
@@ -140,7 +140,7 @@ RC RecordBasedFileManager::readRecord(FileHandle &fileHandle,
     }
     transmuteRecord(page, recordOffset, recordDescriptor, data);
 
-    return 0;
+    return SUCCESS;
 }
 
 RC RecordBasedFileManager::printRecord(const vector<Attribute> &recordDescriptor, const void *data)
@@ -182,7 +182,7 @@ RC RecordBasedFileManager::printRecord(const vector<Attribute> &recordDescriptor
     }
     cout << endl;
 
-    return 0;
+    return SUCCESS;
 }
 
 RC RecordBasedFileManager::deleteRecord(FileHandle &fileHandle,
@@ -196,7 +196,7 @@ RC RecordBasedFileManager::deleteRecord(FileHandle &fileHandle,
 
     unsigned recordLength = getRecordLength(page, slotNum);
     if (recordLength == 0) {    // this record has been deleted and should not be deleted again
-        return -1;
+        return FAIL;
     }
 
     unsigned recordOffset = getRecordOffset(page, slotNum);
@@ -249,7 +249,7 @@ RC RecordBasedFileManager::deleteRecord(FileHandle &fileHandle,
     updateFreeSpace(fileHandle, page, pageNum, freeBytes + recordLength);
     fileHandle.writePage(pageNum, page);
 
-    return 0;
+    return SUCCESS;
 }
 
 RC RecordBasedFileManager::updateRecord(FileHandle &fileHandle,
@@ -265,14 +265,14 @@ RC RecordBasedFileManager::updateRecord(FileHandle &fileHandle,
     // length of the old record
     unsigned recordLength = getRecordLength(page, slotNum);
     if (recordLength == 0) {    // this record has been deleted and should not be updated
-        return -1;
+        return FAIL;
     }
 
     // length of the updated record
     unsigned newRecordLength = max(POINTER_SZ, computeRecordLength(recordDescriptor, data));
 
     if (newRecordLength + SLOT_OFFSET_SZ + SLOT_LENGTH_SZ > PAGE_SIZE - FREE_SPACE_SZ - NUM_OF_SLOTS_SZ) {
-        return -1;
+        return FAIL;
     }
 
     // update the length of record in the original page
@@ -371,7 +371,7 @@ RC RecordBasedFileManager::updateRecord(FileHandle &fileHandle,
         delete[] dataPage;
     }
 
-    return 0;
+    return SUCCESS;
 }
 
 RC RecordBasedFileManager::readAttribute(FileHandle &fileHandle,
@@ -380,13 +380,24 @@ RC RecordBasedFileManager::readAttribute(FileHandle &fileHandle,
                                          const string &attributeName,
                                          void *data)
 {
+    auto numOfFields = recordDescriptor.size();
+    unsigned attrNum = 0;
+    for (; attrNum < numOfFields; ++attrNum) {
+        if (recordDescriptor[attrNum].name == attributeName) {
+            break;
+        }
+    }
+    if (attrNum == numOfFields) {   // the given attribute name does not exist
+        return FAIL;
+    }
+
     PageNum pageNum = rid.pageNum;
     unsigned slotNum = rid.slotNum;
     byte page[PAGE_SIZE];
     fileHandle.readPage(pageNum, page);
     unsigned recordLength = getRecordLength(page, slotNum);
     if (recordLength == 0) {
-        return -1;
+        return FAIL;
     }
     unsigned recordOffset = getRecordOffset(page, slotNum);
     if (recordOffset >= PAGE_SIZE) {
@@ -397,16 +408,6 @@ RC RecordBasedFileManager::readAttribute(FileHandle &fileHandle,
         recordOffset = getRecordOffset(page, slotNum);
     }
 
-    auto numOfFields = recordDescriptor.size();
-    unsigned attrNum = 0;
-    for (; attrNum < numOfFields; ++attrNum) {
-        if (recordDescriptor[attrNum].name == attributeName) {
-            break;
-        }
-    }
-    if (attrNum == numOfFields) {   // the given attribute name does not exist
-        return -1;
-    }
     byte *pData = (byte*) data + 1;
     if (readField(page, recordOffset, attrNum, recordDescriptor[attrNum], pData) == nullptr) {
         memset(data, 0x80, 1);
@@ -414,7 +415,7 @@ RC RecordBasedFileManager::readAttribute(FileHandle &fileHandle,
         memset(data, 0, 1);
     }
 
-    return 0;
+    return SUCCESS;
 }
 
 RC RecordBasedFileManager::scan(FileHandle &fileHandle,
@@ -437,11 +438,19 @@ RC RecordBasedFileManager::scan(FileHandle &fileHandle,
             }
         }
     }
+    if (attributeNames.size() != rbfm_ScanIterator.attrNums.size()) {
+        return FAIL;
+    }
 
-    for (unsigned i = 0; i < recordDescriptor.size(); ++i) {
-        if (recordDescriptor[i].name == conditionAttribute) {
-            rbfm_ScanIterator.conditionAttrNum = i;
-            break;
+    if (compOp != NO_OP) {
+        auto &conditionAttrNum = rbfm_ScanIterator.conditionAttrNum;
+        for (conditionAttrNum = 0; conditionAttrNum < recordDescriptor.size(); ++conditionAttrNum) {
+            if (recordDescriptor[conditionAttrNum].name == conditionAttribute) {
+                break;
+            }
+        }
+        if (conditionAttrNum == recordDescriptor.size()) {
+            return FAIL;
         }
     }
 
@@ -453,7 +462,7 @@ RC RecordBasedFileManager::scan(FileHandle &fileHandle,
     rbfm_ScanIterator.numOfPages = fileHandle.getNumberOfPages();
     rbfm_ScanIterator.pageNum = 0;
 
-    return 0;
+    return SUCCESS;
 }
 
 unsigned RecordBasedFileManager::computeRecordLength(const vector<Attribute> &recordDescriptor, const void *data)
@@ -544,7 +553,7 @@ RC RecordBasedFileManager::seekFreePage(FileHandle &fileHandle, unsigned size, P
         }
     }
 
-    return 0;
+    return SUCCESS;
 }
 
 RC RecordBasedFileManager::updateFreeSpace(FileHandle &fileHandle, byte *page, PageNum pageNum, unsigned freeBytes)
@@ -558,7 +567,7 @@ RC RecordBasedFileManager::updateFreeSpace(FileHandle &fileHandle, byte *page, P
     *((uint16_t*) (header + entryNum*(PAGE_NUM_SZ + FREE_SPACE_SZ) + PAGE_NUM_SZ)) = freeBytes;
     fileHandle.writePage(headerNum, header);
 
-    return 0;
+    return SUCCESS;
 }
 
 void RecordBasedFileManager::writeRecord(byte *page,
@@ -730,16 +739,22 @@ RC RBFM_ScanIterator::getNextRecord(RID &rid, void *data)
                 continue;
             }
 
-            unique_ptr<byte[]> field(new byte[recordLength]);
-            Attribute conditionAttr = recordDescriptor[conditionAttrNum];
-            if (rbfm->readField(page, recordOffset, conditionAttrNum, conditionAttr, field.get()) == nullptr) {
-                field.reset();
+            bool compareResult;
+            if (compOp == NO_OP) {
+                compareResult = true;
+            } else {
+                unique_ptr<byte[]> field(new byte[recordLength]);
+                Attribute conditionAttr = recordDescriptor[conditionAttrNum];
+                if (rbfm->readField(page, recordOffset, conditionAttrNum, conditionAttr, field.get()) == nullptr) {
+                    field.reset();
+                }
+                compareResult = compare(conditionAttr.type, compOp, field.get(), value);
             }
-            if (compare(conditionAttr.type, compOp, field.get(), value)) {
+            if (compareResult) {
                 transmuteRecord(recordOffset, data);
                 rid.pageNum = pageNum;
                 rid.slotNum = slotNum++;
-                return 0;
+                return SUCCESS;
             }
         }
 
@@ -754,7 +769,7 @@ RC RBFM_ScanIterator::close()
 {
     delete fileHandle;
     fileHandle = nullptr;
-    return 0;
+    return SUCCESS;
 }
 
 bool RBFM_ScanIterator::compare(AttrType type, CompOp compOp, const void *op1, const void *op2)

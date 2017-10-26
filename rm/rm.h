@@ -90,12 +90,14 @@ private:
     const string TABLE_NAME = "table-name";
     const string FILE_NAME = "file-name";
     const string SYSTEM_FLAG = "system-flag";
+    const string VERSION = "version";
     const string COLUMN_NAME = "column-name";
     const string COLUMN_TYPE = "column-type";
     const string COLUMN_LENGTH = "column-length";
     const string COLUMN_POSITION = "column-position";
-    const int TABLES_ATTR_NUM = 4;
-    const int COLUMNS_ATTR_NUM = 6;
+    const int NATIVE_VERSION = 1;
+    const int TABLES_ATTR_NUM = 5;
+    const int COLUMNS_ATTR_NUM = 7;
     const int TABLES_ID = 1;
     const int COLUMNS_ID = 2;
 
@@ -105,6 +107,7 @@ private:
 
     /** private functions called by createCatalog(...) **/
     RC insertCatalogTuple(const string &tableName, const void *data, RID &rid);
+
     void initializeTablesTable(); // insert essential tuples to "Tables" table as an initialization of catalog
     void initializeColumnsTable(); // insert essential tuples to "Columns" table as an initialization of catalog
 
@@ -113,15 +116,22 @@ private:
 
     void prepareRecordDescriptorForColumnsTable(vector<Attribute> &recordDescriptor);
 
+    /**  private functions called by getAttributes **/
+    RC getAttributesByVersion(const string &tableName, const int version, vector<Attribute> &attrs);
+
     /** private functions for reading and writing metadata **/
     RC prepareTableIdAndTablesRid(const string tableName, int &tableId, RID &rid);
 
-    RC preparePositionAttributeMap(int tableId, unordered_map<int, Attribute> &positionAttributeMap);
+    RC prepareTableIdCurrentVersionAndTablesRid(const string tableName, int &tableId, int &version, RID &rid);
+
+    RC preparePositionAttributeMap(int tableId, const int version, unordered_map<int, Attribute> &positionAttributeMap);
 
     RC deleteTargetTableTuplesInColumnsTable(int tableId);
 
     RC deleteCatalogTuple(const string &tableName, const RID &rid);
-    
+
+    RC updateCatalogTuple(const string &tableName, const void *data, const RID &rid);
+
     /** private functions for general use **/
     void updateLastTableId(uint32_t tableId);
 

@@ -20,7 +20,7 @@ int getByteOfNullsIndicator(int fieldCount) {
 
 // prepare tuple that would be written to "Tables" table
 void prepareTupleForTables(int attributeCount, const int tableID, const string &name,
-                           const int isSystemInfo, void *tuple) {
+                           const int isSystemInfo, const int version, void *tuple) {
     int offset = 0;
     int nullAttributesIndicatorActualSize = getByteOfNullsIndicator(attributeCount);
     int nameLength = name.size();
@@ -48,11 +48,16 @@ void prepareTupleForTables(int attributeCount, const int tableID, const string &
     // write isSystemInfo to tuple record
     memcpy((char *) tuple + offset, &isSystemInfo, sizeof(int));
     offset += sizeof(int);
+
+    // write version to tuple record
+    memcpy((char *) tuple + offset, &version, sizeof(int));
+    offset += sizeof(int);
 }
 
 // prepare tuple that would be written to "Columns" table
-void prepareTupleForColumns(int attributeCount, const int tableID, const string &columnName, const int columnType,
-                            const int columnLength, const int columnPosition, const int isSystemInfo, void *tuple) {
+void prepareTupleForColumns(int attributeCount, const int tableID, const string &columnName,
+                            const int columnType, const int columnLength, const int columnPosition,
+                            const int isSystemInfo, const int version, void *tuple) {
     int offset = 0;
     int nullAttributesIndicatorActualSize = getByteOfNullsIndicator(attributeCount);
     int nameLength = columnName.size();
@@ -85,6 +90,10 @@ void prepareTupleForColumns(int attributeCount, const int tableID, const string 
 
     // write isSystemInfo to tuple record
     memcpy((char *) tuple + offset, &isSystemInfo, sizeof(int));
+    offset += sizeof(int);
+
+    // write version to tuple record
+    memcpy((char *) tuple + offset, &version, sizeof(int));
     offset += sizeof(int);
 }
 

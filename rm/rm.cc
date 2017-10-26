@@ -56,13 +56,13 @@ RC RelationManager::createTable(const string &tableName, const vector<Attribute>
         return FAIL;
     }
     // write schema to "Tables" table
-    prepareTupleForTables(TABLES_ATTR_NUM, tableId, tableName, false, tuple);
+    prepareTupleForTables(TABLES_ATTR_NUM, tableId, tableName, false, NATIVE_VERSION, tuple);
     insertCatalogTuple(TABLES_TABLE, tuple, rid);
     // write schema to "Columns" table
     int columnPosition = 0;
     for (const Attribute &attribute : attrs) {
         prepareTupleForColumns(COLUMNS_ATTR_NUM, tableId, attribute.name, attribute.type, attribute.length,
-                               ++columnPosition, false, tuple);
+                               ++columnPosition, false, NATIVE_VERSION, tuple);
         insertCatalogTuple(COLUMNS_TABLE, tuple, rid);
     }
     // Plus last table id by 1 in catalog_information file
@@ -74,7 +74,7 @@ RC RelationManager::createTable(const string &tableName, const vector<Attribute>
 }
 
 RC RelationManager::deleteTable(const string &tableName) {
-    int tableId;
+    int tableId, currentVersion;
     RID rid;
 
     if (isSystemTable(tableName)) {
@@ -93,12 +93,14 @@ RC RelationManager::deleteTable(const string &tableName) {
 }
 
 RC RelationManager::getAttributes(const string &tableName, vector<Attribute> &attrs) {
-    int tableId;
+    int tableId, currentVersion;
     unordered_map<int, Attribute> positionAttributeMap;
-    RID rid;
+    RID tablesRid;
 
-    if (prepareTableIdAndTablesRid(tableName, tableId, rid) == FAIL) { return FAIL; }
-    if (preparePositionAttributeMap(tableId, positionAttributeMap) == FAIL) { return FAIL; }
+    if (prepareTableIdCurrentVersionAndTablesRid(tableName, tableId, currentVersion, tablesRid) == FAIL) {
+        return FAIL;
+    }
+    if (preparePositionAttributeMap(tableId, currentVersion, positionAttributeMap) == FAIL) { return FAIL; }
 
     // prepare attrs ordered by column position
     for (int i = 1; i <= positionAttributeMap.size(); i++) {
@@ -238,7 +240,70 @@ RC RelationManager::dropAttribute(const string &tableName, const string &attribu
 
 // Extra credit work
 RC RelationManager::addAttribute(const string &tableName, const Attribute &attr) {
-    return -1;
+    if (isSystemTable(tableName)) {
+        return FAIL;
+    }
+
+    RID tablesRid;
+    int tableId;
+    int oldVersion, newVersion;
+
+    //for Debugging
+    vector<Attribute> recordDescriptor; //
+    prepareRecordDescriptorForColumnsTable(recordDescriptor); //
+
+
+    prepareTableIdCurrentVersionAndTablesRid(tableName, tableId, oldVersion, tablesRid);
+    // update Tables tuple by making version plus 1
+    void *data = malloc(PAGE_SIZE);
+    if (readTuple(TABLES_TABLE, tablesRid, data) == FAIL) { return FAIL; }
+    int nullFlagLength = getByteOfNullsIndicator(TABLES_ATTR_NUM);
+    int nameLength = *((uint32_t *) ((char *) data + nullFlagLength + sizeof(int)));
+    int versionOffset = nullFlagLength + sizeof(int) + 2 * sizeof(uint32_t) + 2 * nameLength + sizeof(int);
+    newVersion = oldVersion + 1;
+    *((uint32_t *) ((char *) data + versionOffset)) = newVersion;
+    if (updateCatalogTuple(TABLES_TABLE, data, tablesRid) == FAIL) { return FAIL; }
+    free(data);
+    // update Columns table
+    RID columnsRid;
+    RM_ScanIterator rm_scanIterator;
+    void *returnedData = malloc(PAGE_SIZE);
+    vector<string> attributeNames;
+    int largestColumnPos = 0;
+    attributeNames.push_back(TABLE_ID);
+    attributeNames.push_back(COLUMN_NAME);
+    attributeNames.push_back(COLUMN_TYPE);
+    attributeNames.push_back(COLUMN_LENGTH);
+    attributeNames.push_back(COLUMN_POSITION);
+    attributeNames.push_back(SYSTEM_FLAG);
+    attributeNames.push_back(VERSION);
+    int nullFieldIndicatorSize = getByteOfNullsIndicator(attributeNames.size());
+    if (scan(COLUMNS_TABLE, TABLE_ID, EQ_OP, getScanValue(tableId), attributeNames, rm_scanIterator) == FAIL) {
+        return FAIL;
+    }
+    while (rm_scanIterator.getNextTuple(columnsRid, returnedData) != RM_EOF) {
+        int nameLength = *((uint32_t *) ((char *) returnedData + nullFlagLength + sizeof(int)));
+        int columnPositionOffset = nullFieldIndicatorSize + sizeof(int) + sizeof(uint32_t) + nameLength + 2 * sizeof(int);
+        int versionOffset = nullFieldIndicatorSize + sizeof(int) + sizeof(uint32_t) + nameLength + 4 * sizeof(int);
+        if (*((uint32_t *) ((char *) returnedData + versionOffset)) == oldVersion) {
+            largestColumnPos = max(largestColumnPos, *((int *) ((char *) returnedData + columnPositionOffset)));
+            *((uint32_t *) ((char *) returnedData + versionOffset)) = newVersion;
+            RID rid;
+            if (insertCatalogTuple(COLUMNS_TABLE, returnedData, rid) == FAIL) {
+                return FAIL;
+            }
+        }
+    }
+    free(returnedData);
+    rm_scanIterator.close();
+    // insert new attribute tuple to Columns table
+    void *tuple = malloc(PAGE_SIZE);
+    prepareTupleForColumns(COLUMNS_ATTR_NUM, tableId, attr.name, attr.type, attr.length, largestColumnPos + 1, false, newVersion, tuple);
+    insertCatalogTuple(COLUMNS_TABLE, tuple, columnsRid);
+    free(tuple);
+
+
+    return SUCCESS;
 }
 
 /** private functions called by createCatalog(...) **/
@@ -271,10 +336,10 @@ void RelationManager::initializeTablesTable() {
     RID rid;
     void *tuple = malloc(PAGE_SIZE);
 
-    prepareTupleForTables(TABLES_ATTR_NUM, TABLES_ID, TABLES_TABLE, true, tuple);
+    prepareTupleForTables(TABLES_ATTR_NUM, TABLES_ID, TABLES_TABLE, true, NATIVE_VERSION, tuple);
     insertCatalogTuple(TABLES_TABLE, tuple, rid);
 
-    prepareTupleForTables(TABLES_ATTR_NUM, COLUMNS_ID, COLUMNS_TABLE, true, tuple);
+    prepareTupleForTables(TABLES_ATTR_NUM, COLUMNS_ID, COLUMNS_TABLE, true, NATIVE_VERSION, tuple);
     insertCatalogTuple(TABLES_TABLE, tuple, rid);
 
     free(tuple);
@@ -284,26 +349,30 @@ void RelationManager::initializeColumnsTable() {
     RID rid;
     void *tuple = malloc(PAGE_SIZE);
 
-    prepareTupleForColumns(COLUMNS_ATTR_NUM, TABLES_ID, TABLE_ID, TypeInt, 4, 1, true, tuple);
+    prepareTupleForColumns(COLUMNS_ATTR_NUM, TABLES_ID, TABLE_ID, TypeInt, 4, 1, true, NATIVE_VERSION, tuple);
     insertCatalogTuple(COLUMNS_TABLE, tuple, rid);
-    prepareTupleForColumns(COLUMNS_ATTR_NUM, TABLES_ID, TABLE_NAME, TypeVarChar, 50, 2, true, tuple);
+    prepareTupleForColumns(COLUMNS_ATTR_NUM, TABLES_ID, TABLE_NAME, TypeVarChar, 50, 2, true, NATIVE_VERSION, tuple);
     insertCatalogTuple(COLUMNS_TABLE, tuple, rid);
-    prepareTupleForColumns(COLUMNS_ATTR_NUM, TABLES_ID, FILE_NAME, TypeVarChar, 50, 3, true, tuple);
+    prepareTupleForColumns(COLUMNS_ATTR_NUM, TABLES_ID, FILE_NAME, TypeVarChar, 50, 3, true, NATIVE_VERSION, tuple);
     insertCatalogTuple(COLUMNS_TABLE, tuple, rid);
-    prepareTupleForColumns(COLUMNS_ATTR_NUM, TABLES_ID, SYSTEM_FLAG, TypeInt, 4, 4, true, tuple);
+    prepareTupleForColumns(COLUMNS_ATTR_NUM, TABLES_ID, SYSTEM_FLAG, TypeInt, 4, 4, true, NATIVE_VERSION, tuple);
+    insertCatalogTuple(COLUMNS_TABLE, tuple, rid);
+    prepareTupleForColumns(COLUMNS_ATTR_NUM, TABLES_ID, VERSION, TypeInt, 4, 5, true, NATIVE_VERSION, tuple);
     insertCatalogTuple(COLUMNS_TABLE, tuple, rid);
 
-    prepareTupleForColumns(COLUMNS_ATTR_NUM, COLUMNS_ID, TABLE_ID, TypeInt, 4, 1, true, tuple);
+    prepareTupleForColumns(COLUMNS_ATTR_NUM, COLUMNS_ID, TABLE_ID, TypeInt, 4, 1, true, NATIVE_VERSION, tuple);
     insertCatalogTuple(COLUMNS_TABLE, tuple, rid);
-    prepareTupleForColumns(COLUMNS_ATTR_NUM, COLUMNS_ID, COLUMN_NAME, TypeVarChar, 50, 2, true, tuple);
+    prepareTupleForColumns(COLUMNS_ATTR_NUM, COLUMNS_ID, COLUMN_NAME, TypeVarChar, 50, 2, true, NATIVE_VERSION, tuple);
     insertCatalogTuple(COLUMNS_TABLE, tuple, rid);
-    prepareTupleForColumns(COLUMNS_ATTR_NUM, COLUMNS_ID, COLUMN_TYPE, TypeInt, 4, 3, true, tuple);
+    prepareTupleForColumns(COLUMNS_ATTR_NUM, COLUMNS_ID, COLUMN_TYPE, TypeInt, 4, 3, true, NATIVE_VERSION, tuple);
     insertCatalogTuple(COLUMNS_TABLE, tuple, rid);
-    prepareTupleForColumns(COLUMNS_ATTR_NUM, COLUMNS_ID, COLUMN_LENGTH, TypeInt, 4, 4, true, tuple);
+    prepareTupleForColumns(COLUMNS_ATTR_NUM, COLUMNS_ID, COLUMN_LENGTH, TypeInt, 4, 4, true, NATIVE_VERSION, tuple);
     insertCatalogTuple(COLUMNS_TABLE, tuple, rid);
-    prepareTupleForColumns(COLUMNS_ATTR_NUM, COLUMNS_ID, COLUMN_POSITION, TypeInt, 4, 5, true, tuple);
+    prepareTupleForColumns(COLUMNS_ATTR_NUM, COLUMNS_ID, COLUMN_POSITION, TypeInt, 4, 5, true, NATIVE_VERSION, tuple);
     insertCatalogTuple(COLUMNS_TABLE, tuple, rid);
-    prepareTupleForColumns(COLUMNS_ATTR_NUM, COLUMNS_ID, SYSTEM_FLAG, TypeInt, 4, 6, true, tuple);
+    prepareTupleForColumns(COLUMNS_ATTR_NUM, COLUMNS_ID, SYSTEM_FLAG, TypeInt, 4, 6, true, NATIVE_VERSION, tuple);
+    insertCatalogTuple(COLUMNS_TABLE, tuple, rid);
+    prepareTupleForColumns(COLUMNS_ATTR_NUM, COLUMNS_ID, VERSION, TypeInt, 4, 7, true, NATIVE_VERSION, tuple);
     insertCatalogTuple(COLUMNS_TABLE, tuple, rid);
 
     free(tuple);
@@ -329,6 +398,11 @@ void RelationManager::prepareRecordDescriptorForTablesTable(vector<Attribute> &r
     recordDescriptor.push_back(attribute);
 
     attribute.name = SYSTEM_FLAG;
+    attribute.type = TypeInt;
+    attribute.length = (AttrLength) 4;
+    recordDescriptor.push_back(attribute);
+
+    attribute.name = VERSION;
     attribute.type = TypeInt;
     attribute.length = (AttrLength) 4;
     recordDescriptor.push_back(attribute);
@@ -367,36 +441,92 @@ void RelationManager::prepareRecordDescriptorForColumnsTable(vector<Attribute> &
     attribute.length = (AttrLength) 4;
     recordDescriptor.push_back(attribute);
 
+    attribute.name = VERSION;
+    attribute.type = TypeInt;
+    attribute.length = (AttrLength) 4;
+    recordDescriptor.push_back(attribute);
+
+}
+
+/**  private functions called by getAttributes **/
+RC RelationManager::getAttributesByVersion(const string &tableName, const int version, vector<Attribute> &attrs){
+    int tableId, currentVersion;
+    unordered_map<int, Attribute> positionAttributeMap;
+    RID rid;
+
+    if (prepareTableIdCurrentVersionAndTablesRid(tableName, tableId, currentVersion, rid) == FAIL) { return FAIL; }
+    if (preparePositionAttributeMap(tableId, version, positionAttributeMap) == FAIL) { return FAIL; }
+
+    // prepare attrs ordered by column position
+    for (int i = 1; i <= positionAttributeMap.size(); i++) {
+        auto it = positionAttributeMap.find(i);
+        if (it == positionAttributeMap.end()) {
+            return FAIL;
+        } else {
+            attrs.push_back(positionAttributeMap[i]);
+        }
+    }
+
+    return SUCCESS;
 }
 
 /** private functions for reading and writing metadata **/
+
 RC RelationManager::prepareTableIdAndTablesRid(const string tableName, int &tableId, RID &rid) {
     RM_ScanIterator rm_scanIterator;
-    void *returnedData = malloc(200);
-    void *scanValueOfTableName = malloc(tableName.size() + 4);
+    void *returnedData = malloc(PAGE_SIZE);
+    void *scanValueOfTableName = malloc(tableName.size() + sizeof(uint32_t));
     vector<string> attributeNames;
     attributeNames.push_back(TABLE_ID);
+    int nullFlagLength = getByteOfNullsIndicator(attributeNames.size());
 
     prepareScanValue(tableName, scanValueOfTableName);
     if (scan(TABLES_TABLE, TABLE_NAME, EQ_OP, scanValueOfTableName, attributeNames, rm_scanIterator) == FAIL) {
         return FAIL;
     }
     if (rm_scanIterator.getNextTuple(rid, returnedData) == RM_EOF) { return FAIL; }
-    tableId = *((int *) ((char *) returnedData + getByteOfNullsIndicator(attributeNames.size())));
+    tableId = *((int *) ((char *) returnedData + nullFlagLength));
     free(returnedData);
+    free(scanValueOfTableName);
     rm_scanIterator.close();
     return SUCCESS;
 }
 
-RC RelationManager::preparePositionAttributeMap(int tableId, unordered_map<int, Attribute> &positionAttributeMap) {
+RC RelationManager::prepareTableIdCurrentVersionAndTablesRid(const string tableName, int &tableId, int &version,
+                                                             RID &rid) {
+    RM_ScanIterator rm_scanIterator;
+    void *returnedData = malloc(PAGE_SIZE);
+    void *scanValueOfTableName = malloc(tableName.size() + sizeof(uint32_t));
+    vector<string> attributeNames;
+    attributeNames.push_back(TABLE_ID);
+    attributeNames.push_back(VERSION);
+    int nullFlagLength = getByteOfNullsIndicator(attributeNames.size());
+
+    prepareScanValue(tableName, scanValueOfTableName);
+    if (scan(TABLES_TABLE, TABLE_NAME, EQ_OP, scanValueOfTableName, attributeNames, rm_scanIterator) == FAIL) {
+        return FAIL;
+    }
+    if (rm_scanIterator.getNextTuple(rid, returnedData) == RM_EOF) { return FAIL; }
+    tableId = *((int *) ((char *) returnedData + nullFlagLength));
+    version = *((int *) ((char *) returnedData + nullFlagLength + sizeof(int)));
+    free(returnedData);
+    free(scanValueOfTableName);
+    rm_scanIterator.close();
+    return SUCCESS;
+}
+
+RC RelationManager::preparePositionAttributeMap(int tableId, const int version,
+                                                unordered_map<int, Attribute> &positionAttributeMap) {
     RID rid;
     RM_ScanIterator rm_scanIterator;
-    void *returnedData = malloc(200);
+    void *returnedData = malloc(PAGE_SIZE);
     vector<string> attributeNames;
+    attributeNames.push_back(VERSION);
     attributeNames.push_back(COLUMN_NAME);
     attributeNames.push_back(COLUMN_TYPE);
     attributeNames.push_back(COLUMN_LENGTH);
     attributeNames.push_back(COLUMN_POSITION);
+
     int nullFieldIndicatorSize = getByteOfNullsIndicator(attributeNames.size());
 
     if (scan(COLUMNS_TABLE, TABLE_ID, EQ_OP, getScanValue(tableId), attributeNames, rm_scanIterator) == FAIL) {
@@ -405,6 +535,13 @@ RC RelationManager::preparePositionAttributeMap(int tableId, unordered_map<int, 
     while (rm_scanIterator.getNextTuple(rid, returnedData) != RM_EOF) {
         Attribute attribute;
         int offset = 0;
+
+        int tupleVersion = *(int *) ((char *) returnedData + offset + nullFieldIndicatorSize);
+        // skip attribute of wrong version
+        if (tupleVersion != version) {
+            continue;
+        }
+        offset += sizeof(int);
 
         int columnNameLength = *(uint32_t *) ((char *) returnedData + nullFieldIndicatorSize + offset);
         offset += sizeof(uint32_t);
@@ -431,7 +568,7 @@ RC RelationManager::preparePositionAttributeMap(int tableId, unordered_map<int, 
 RC RelationManager::deleteTargetTableTuplesInColumnsTable(int tableId) {
     RID rid;
     RM_ScanIterator rm_scanIterator;
-    void *returnedData = malloc(200);
+    void *returnedData = malloc(PAGE_SIZE);
     vector<string> attributeNames;
     vector<Attribute> recordDescriptor;
     prepareRecordDescriptorForColumnsTable(recordDescriptor);
@@ -461,6 +598,26 @@ RC RelationManager::deleteCatalogTuple(const string &tableName, const RID &rid) 
     }
     prepareRecordDescriptor(tableName, recordDescriptor);
     if (rbfm->deleteRecord(fileHandle, recordDescriptor, rid) == FAIL) {
+        return FAIL;
+    }
+    rbfm->closeFile(fileHandle);
+
+    return SUCCESS;
+}
+
+RC RelationManager::updateCatalogTuple(const string &tableName, const void *data, const RID &rid) {
+    FileHandle fileHandle;
+    vector<Attribute> recordDescriptor;
+
+    if (isSystemTuple(tableName, rid)) {
+        return FAIL;
+    }
+
+    if (rbfm->openFile(tableName, fileHandle) == FAIL) {
+        return FAIL;
+    }
+    prepareRecordDescriptor(tableName, recordDescriptor);
+    if (rbfm->updateRecord(fileHandle, recordDescriptor, data, rid) == FAIL) {
         return FAIL;
     }
     rbfm->closeFile(fileHandle);

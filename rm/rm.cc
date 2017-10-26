@@ -68,6 +68,8 @@ RC RelationManager::createTable(const string &tableName, const vector<Attribute>
     // Plus last table id by 1 in catalog_information file
     updateLastTableId(tableId);
 
+    free(tuple);
+
     return SUCCESS;
 }
 
@@ -274,6 +276,8 @@ void RelationManager::initializeTablesTable() {
 
     prepareTupleForTables(TABLES_ATTR_NUM, COLUMNS_ID, COLUMNS_TABLE, true, tuple);
     insertCatalogTuple(TABLES_TABLE, tuple, rid);
+
+    free(tuple);
 }
 
 void RelationManager::initializeColumnsTable() {
@@ -301,6 +305,8 @@ void RelationManager::initializeColumnsTable() {
     insertCatalogTuple(COLUMNS_TABLE, tuple, rid);
     prepareTupleForColumns(COLUMNS_ATTR_NUM, COLUMNS_ID, SYSTEM_FLAG, TypeInt, 4, 6, true, tuple);
     insertCatalogTuple(COLUMNS_TABLE, tuple, rid);
+
+    free(tuple);
 }
 
 /** private functions called by insertTuple(...) **/
@@ -367,10 +373,12 @@ void RelationManager::prepareRecordDescriptorForColumnsTable(vector<Attribute> &
 RC RelationManager::prepareTableIdAndTablesRid(const string tableName, int &tableId, RID &rid) {
     RM_ScanIterator rm_scanIterator;
     void *returnedData = malloc(200);
+    void *scanValueOfTableName = malloc(tableName.size() + 4);
     vector<string> attributeNames;
     attributeNames.push_back(TABLE_ID);
 
-    if (scan(TABLES_TABLE, TABLE_NAME, EQ_OP, getScanValue(tableName), attributeNames, rm_scanIterator) == FAIL) {
+    prepareScanValue(tableName, scanValueOfTableName);
+    if (scan(TABLES_TABLE, TABLE_NAME, EQ_OP, scanValueOfTableName, attributeNames, rm_scanIterator) == FAIL) {
         return FAIL;
     }
     if (rm_scanIterator.getNextTuple(rid, returnedData) == RM_EOF) { return FAIL; }
@@ -464,19 +472,17 @@ RC RelationManager::deleteCatalogTuple(const string &tableName, const RID &rid) 
 void RelationManager::updateLastTableId(uint32_t tableId) {
     fstream file;
     file.open(CATALOG_INFO);
-    void *data = malloc(sizeof(uint32_t));
-    *((uint32_t *) data) = tableId;
-    file.write((char *) data, sizeof(uint32_t));
+    file.write((char *) &tableId, sizeof(uint32_t));
     file.close();
 }
 
 uint32_t RelationManager::getLastTableId() {
     fstream file;
-    file.open(CATALOG_INFO, fstream::in | fstream::out | fstream::binary);
-    void *data = malloc(sizeof(uint32_t));
-    file.read((char *) data, sizeof(uint32_t));
+    file.open(CATALOG_INFO, fstream::in | fstream::binary);
+    uint32_t tableId;
+    file.read((char *) &tableId, sizeof(uint32_t));
     file.close();
-    return *((uint32_t *) data);
+    return tableId;
 }
 
 bool RelationManager::isSystemTable(const string tableName) {
@@ -484,18 +490,14 @@ bool RelationManager::isSystemTable(const string tableName) {
 }
 
 bool RelationManager::isSystemTuple(const string tableName, const RID rid) {
-    void *returnedData = malloc(PAGE_SIZE);
-
     if (tableName != TABLES_TABLE && tableName != COLUMNS_TABLE) {
         return false;
     }
+    void *returnedData = malloc(PAGE_SIZE);
     readAttribute(tableName, rid, SYSTEM_FLAG, returnedData);
-    if (*((int *) returnedData) == 0) {
-        return false;
-    }
+    int systemFlag = *((int *) ((char *)returnedData + getByteOfNullsIndicator(1)));
     free(returnedData);
-
-    return true;
+    return systemFlag == 1;
 }
 
 RC RelationManager::prepareRecordDescriptor(const string tableName, vector<Attribute> &recordDescriptor) {

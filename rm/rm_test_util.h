@@ -37,54 +37,54 @@ void prepareTuple(int attributeCount, unsigned char *nullAttributesIndicator, co
 {
     int offset = 0;
 
-	// Null-indicators
+    // Null-indicators
     bool nullBit = false;
     int nullAttributesIndicatorActualSize = getActualByteForNullsIndicator(attributeCount);
 
-	// Null-indicator for the fields
+    // Null-indicator for the fields
     memcpy((char *)buffer + offset, nullAttributesIndicator, nullAttributesIndicatorActualSize);
-	offset += nullAttributesIndicatorActualSize;
+    offset += nullAttributesIndicatorActualSize;
 
-	// Beginning of the actual data    
-	// Note that the left-most bit represents the first field. Thus, the offset is 7 from right, not 0.
-	// e.g., if a tuple consists of four attributes and they are all nulls, then the bit representation will be: [11110000]
+    // Beginning of the actual data
+    // Note that the left-most bit represents the first field. Thus, the offset is 7 from right, not 0.
+    // e.g., if a tuple consists of four attributes and they are all nulls, then the bit representation will be: [11110000]
 
-	// Is the name field not-NULL?
-	nullBit = nullAttributesIndicator[0] & (1 << 7);
+    // Is the name field not-NULL?
+    nullBit = nullAttributesIndicator[0] & (1 << 7);
 
-	if (!nullBit) {
-		memcpy((char *)buffer + offset, &nameLength, sizeof(int));
-		offset += sizeof(int);
-		memcpy((char *)buffer + offset, name.c_str(), nameLength);
-		offset += nameLength;
-	}
-	
-	// Is the age field not-NULL?
-	nullBit = nullAttributesIndicator[0] & (1 << 6);
+    if (!nullBit) {
+        memcpy((char *)buffer + offset, &nameLength, sizeof(int));
+        offset += sizeof(int);
+        memcpy((char *)buffer + offset, name.c_str(), nameLength);
+        offset += nameLength;
+    }
 
-	if (!nullBit) {
-		memcpy((char *)buffer + offset, &age, sizeof(int));
-		offset += sizeof(int);
-	}
-	
-	
-	// Is the height field not-NULL?
-	nullBit = nullAttributesIndicator[0] & (1 << 5);
+    // Is the age field not-NULL?
+    nullBit = nullAttributesIndicator[0] & (1 << 6);
 
-	if (!nullBit) {
-		memcpy((char *)buffer + offset, &height, sizeof(float));
-		offset += sizeof(float);
-	}
-	
-	
-	// Is the height field not-NULL?
-	nullBit = nullAttributesIndicator[0] & (1 << 4);
+    if (!nullBit) {
+        memcpy((char *)buffer + offset, &age, sizeof(int));
+        offset += sizeof(int);
+    }
 
-	if (!nullBit) {
-		memcpy((char *)buffer + offset, &salary, sizeof(int));
-		offset += sizeof(int);
-	}
-	
+
+    // Is the height field not-NULL?
+    nullBit = nullAttributesIndicator[0] & (1 << 5);
+
+    if (!nullBit) {
+        memcpy((char *)buffer + offset, &height, sizeof(float));
+        offset += sizeof(float);
+    }
+
+
+    // Is the height field not-NULL?
+    nullBit = nullAttributesIndicator[0] & (1 << 4);
+
+    if (!nullBit) {
+        memcpy((char *)buffer + offset, &salary, sizeof(int));
+        offset += sizeof(int);
+    }
+
     *tupleSize = offset;
 }
 
@@ -93,59 +93,59 @@ void prepareTupleAfterAdd(int attributeCount, unsigned char *nullAttributesIndic
 {
     int offset=0;
 
-	// Null-indicators
+    // Null-indicators
     bool nullBit = false;
     int nullAttributesIndicatorActualSize = getActualByteForNullsIndicator(attributeCount);
 
-	// Null-indicator for the fields
+    // Null-indicator for the fields
     memcpy((char *)buffer + offset, nullAttributesIndicator, nullAttributesIndicatorActualSize);
-	offset += nullAttributesIndicatorActualSize;
+    offset += nullAttributesIndicatorActualSize;
 
-	// Beginning of the actual data
-	// Note that the left-most bit represents the first field. Thus, the offset is 7 from right, not 0.
-	// e.g., if a tuple consists of four attributes and they are all nulls, then the bit representation will be: [11110000]
+    // Beginning of the actual data
+    // Note that the left-most bit represents the first field. Thus, the offset is 7 from right, not 0.
+    // e.g., if a tuple consists of four attributes and they are all nulls, then the bit representation will be: [11110000]
 
-	// Is the name field not-NULL?
-	nullBit = nullAttributesIndicator[0] & (1 << 7);
+    // Is the name field not-NULL?
+    nullBit = nullAttributesIndicator[0] & (1 << 7);
 
-	if (!nullBit) {
-		memcpy((char*)buffer + offset, &nameLength, sizeof(int));
-		offset += sizeof(int);
-		memcpy((char*)buffer + offset, name.c_str(), nameLength);
-		offset += nameLength;
-	}
+    if (!nullBit) {
+        memcpy((char*)buffer + offset, &nameLength, sizeof(int));
+        offset += sizeof(int);
+        memcpy((char*)buffer + offset, name.c_str(), nameLength);
+        offset += nameLength;
+    }
 
-	// Is the age field not-NULL?
-	nullBit = nullAttributesIndicator[0] & (1 << 6);
+    // Is the age field not-NULL?
+    nullBit = nullAttributesIndicator[0] & (1 << 6);
 
-	if (!nullBit) {
-		memcpy((char*)buffer + offset, &age, sizeof(int));
-		offset += sizeof(int);
-	}
+    if (!nullBit) {
+        memcpy((char*)buffer + offset, &age, sizeof(int));
+        offset += sizeof(int);
+    }
 
-	// Is the height field not-NULL?
-	nullBit = nullAttributesIndicator[0] & (1 << 5);
+    // Is the height field not-NULL?
+    nullBit = nullAttributesIndicator[0] & (1 << 5);
 
-	if (!nullBit) {
-		memcpy((char*)buffer + offset, &height, sizeof(float));
-		offset += sizeof(float);
-	}
+    if (!nullBit) {
+        memcpy((char*)buffer + offset, &height, sizeof(float));
+        offset += sizeof(float);
+    }
 
-	// Is the salary field not-NULL?
-	nullBit = nullAttributesIndicator[0] & (1 << 4);
+    // Is the salary field not-NULL?
+    nullBit = nullAttributesIndicator[0] & (1 << 4);
 
-	if (!nullBit) {
-		memcpy((char*)buffer + offset, &salary, sizeof(int));
-		offset += sizeof(int);
-	}
+    if (!nullBit) {
+        memcpy((char*)buffer + offset, &salary, sizeof(int));
+        offset += sizeof(int);
+    }
 
-	// Is the ssn field not-NULL?
-	nullBit = nullAttributesIndicator[0] & (1 << 3);
+    // Is the ssn field not-NULL?
+    nullBit = nullAttributesIndicator[0] & (1 << 3);
 
-	if (!nullBit) {
-		memcpy((char*)buffer + offset, &ssn, sizeof(int));
-		offset += sizeof(int);
-	}
+    if (!nullBit) {
+        memcpy((char*)buffer + offset, &ssn, sizeof(int));
+        offset += sizeof(int);
+    }
 
     *tupleSize = offset;
 }
@@ -233,7 +233,7 @@ void printTupleAfterAdd(const void *buffer, const int tupleSize)
     offset += sizeof(float);
     cout << "height: " << height << endl;
 
-	int salary = 0;
+    int salary = 0;
     memcpy(&salary, (char *)buffer+offset, sizeof(int));
     offset += sizeof(int);
     cout << "salary: " << salary << endl;
@@ -287,12 +287,12 @@ void prepareLargeTuple(int attributeCount, unsigned char *nullAttributesIndicato
 {
     int offset = 0;
 
-	// Null-indicators
+    // Null-indicators
     int nullAttributesIndicatorActualSize = getActualByteForNullsIndicator(attributeCount);
 
-	// Null-indicator for the fields
+    // Null-indicator for the fields
     memcpy((char *)buffer + offset, nullAttributesIndicator, nullAttributesIndicatorActualSize);
-	offset += nullAttributesIndicatorActualSize;
+    offset += nullAttributesIndicatorActualSize;
 
     // compute the count
     int count = index % 50 + 1;
@@ -302,7 +302,7 @@ void prepareLargeTuple(int attributeCount, unsigned char *nullAttributesIndicato
 
     for(unsigned i = 0; i < 10; i++)
     {
-    	// length
+        // length
         memcpy((char *)buffer + offset, &count, sizeof(int));
         offset += sizeof(int);
 
@@ -377,77 +377,77 @@ RC createLargeTable(const string &tableName)
 //This is not a page-based operation. For test purpose only.
 void writeRIDsToDisk(vector<RID> &rids)
 {
-	remove("rids_file");
-	ofstream ridsFile("rids_file", ios::out | ios::trunc | ios::binary);
+    remove("rids_file");
+    ofstream ridsFile("rids_file", ios::out | ios::trunc | ios::binary);
 
-	if (ridsFile.is_open()) {
-		ridsFile.seekp(0, ios::beg);
-		for (unsigned i = 0; i < rids.size(); i++) {
-			ridsFile.write(reinterpret_cast<const char*>(&rids[i].pageNum),
-					sizeof(unsigned));
-			ridsFile.write(reinterpret_cast<const char*>(&rids[i].slotNum),
-					sizeof(unsigned));
-		}
-		ridsFile.close();
-	}
+    if (ridsFile.is_open()) {
+        ridsFile.seekp(0, ios::beg);
+        for (unsigned i = 0; i < rids.size(); i++) {
+            ridsFile.write(reinterpret_cast<const char*>(&rids[i].pageNum),
+                           sizeof(unsigned));
+            ridsFile.write(reinterpret_cast<const char*>(&rids[i].slotNum),
+                           sizeof(unsigned));
+        }
+        ridsFile.close();
+    }
 }
 
 // Write sizes to a disk - do not use this code.
 //This is not a page-based operation. For test purpose only.
 void writeSizesToDisk(vector<int> &sizes)
 {
-	remove("sizes_file");
-	ofstream sizesFile("sizes_file", ios::out | ios::trunc | ios::binary);
+    remove("sizes_file");
+    ofstream sizesFile("sizes_file", ios::out | ios::trunc | ios::binary);
 
-	if (sizesFile.is_open()) {
-		sizesFile.seekp(0, ios::beg);
-		for (unsigned i = 0; i < sizes.size(); i++) {
-			//cout << sizes[i] << endl;
-			sizesFile.write(reinterpret_cast<const char*>(&sizes[i]),
-					sizeof(int));
-		}
-		sizesFile.close();
-	}
+    if (sizesFile.is_open()) {
+        sizesFile.seekp(0, ios::beg);
+        for (unsigned i = 0; i < sizes.size(); i++) {
+            //cout << sizes[i] << endl;
+            sizesFile.write(reinterpret_cast<const char*>(&sizes[i]),
+                            sizeof(int));
+        }
+        sizesFile.close();
+    }
 }
 
 // Read rids from the disk - do not use this code.
 //This is not a page-based operation. For test purpose only.
 void readRIDsFromDisk(vector<RID> &rids, int numRecords)
 {
-	RID tempRID;
-	unsigned pageNum;
-	unsigned slotNum;
+    RID tempRID;
+    unsigned pageNum;
+    unsigned slotNum;
 
-	ifstream ridsFile("rids_file", ios::in | ios::binary);
-	if (ridsFile.is_open()) {
-		ridsFile.seekg(0,ios::beg);
-		for (int i = 0; i < numRecords; i++) {
-			ridsFile.read(reinterpret_cast<char*>(&pageNum), sizeof(unsigned));
-			ridsFile.read(reinterpret_cast<char*>(&slotNum), sizeof(unsigned));
-			tempRID.pageNum = pageNum;
-			tempRID.slotNum = slotNum;
-			rids.push_back(tempRID);
-		}
-		ridsFile.close();
-	}
+    ifstream ridsFile("rids_file", ios::in | ios::binary);
+    if (ridsFile.is_open()) {
+        ridsFile.seekg(0,ios::beg);
+        for (int i = 0; i < numRecords; i++) {
+            ridsFile.read(reinterpret_cast<char*>(&pageNum), sizeof(unsigned));
+            ridsFile.read(reinterpret_cast<char*>(&slotNum), sizeof(unsigned));
+            tempRID.pageNum = pageNum;
+            tempRID.slotNum = slotNum;
+            rids.push_back(tempRID);
+        }
+        ridsFile.close();
+    }
 }
 
 // Read sizes from the disk - do not use this code.
 //This is not a page-based operation. For test purpose only.
 void readSizesFromDisk(vector<int> &sizes, int numRecords)
 {
-	int size;
+    int size;
 
-	ifstream sizesFile("sizes_file", ios::in | ios::binary);
-	if (sizesFile.is_open()) {
+    ifstream sizesFile("sizes_file", ios::in | ios::binary);
+    if (sizesFile.is_open()) {
 
-		sizesFile.seekg(0,ios::beg);
-		for (int i = 0; i < numRecords; i++) {
-			sizesFile.read(reinterpret_cast<char*>(&size), sizeof(int));
-			sizes.push_back(size);
-		}
-		sizesFile.close();
-	}
+        sizesFile.seekg(0,ios::beg);
+        for (int i = 0; i < numRecords; i++) {
+            sizesFile.read(reinterpret_cast<char*>(&size), sizeof(int));
+            sizes.push_back(size);
+        }
+        sizesFile.close();
+    }
 }
 
 
@@ -460,36 +460,36 @@ void createTweetTable(const string &tableName)
 
     vector<Attribute> attrs;
 
-	Attribute attr;
-	attr.name = "tweetid";
-	attr.type = TypeInt;
-	attr.length = (AttrLength) 4;
-	attrs.push_back(attr);
+    Attribute attr;
+    attr.name = "tweetid";
+    attr.type = TypeInt;
+    attr.length = (AttrLength) 4;
+    attrs.push_back(attr);
 
-	attr.name = "userid";
-	attr.type = TypeInt;
-	attr.length = (AttrLength) 4;
-	attrs.push_back(attr);
+    attr.name = "userid";
+    attr.type = TypeInt;
+    attr.length = (AttrLength) 4;
+    attrs.push_back(attr);
 
-	attr.name = "sender_location";
-	attr.type = TypeReal;
-	attr.length = (AttrLength) 4;
-	attrs.push_back(attr);
+    attr.name = "sender_location";
+    attr.type = TypeReal;
+    attr.length = (AttrLength) 4;
+    attrs.push_back(attr);
 
-	attr.name = "send_time";
-	attr.type = TypeReal;
-	attr.length = (AttrLength) 4;
-	attrs.push_back(attr);
+    attr.name = "send_time";
+    attr.type = TypeReal;
+    attr.length = (AttrLength) 4;
+    attrs.push_back(attr);
 
-	attr.name = "referred_topics";
-	attr.type = TypeVarChar;
-	attr.length = (AttrLength) 100;
-	attrs.push_back(attr);
+    attr.name = "referred_topics";
+    attr.type = TypeVarChar;
+    attr.length = (AttrLength) 100;
+    attrs.push_back(attr);
 
-	attr.name = "message_text";
-	attr.type = TypeVarChar;
-	attr.length = (AttrLength) 100;
-	attrs.push_back(attr);
+    attr.name = "message_text";
+    attr.type = TypeVarChar;
+    attr.length = (AttrLength) 100;
+    attrs.push_back(attr);
 
     RC rc = rm->createTable(tableName, attrs);
     assert(rc == success && "createTable() should not fail.");
@@ -498,227 +498,227 @@ void createTweetTable(const string &tableName)
 
 // Prepare the data in the correct form to be inserted/read
 void prepareTweetTuple(int attributeCount, unsigned char *nullAttributesIndicator,
-		const int tweetid, const int userid,
-		const float sender_location, const float send_time,
-		const int referred_topicsLength, const string &referred_topics,
-		const int message_textLength, const string &message_text,
-		void *buffer, int *recordSize)
+                       const int tweetid, const int userid,
+                       const float sender_location, const float send_time,
+                       const int referred_topicsLength, const string &referred_topics,
+                       const int message_textLength, const string &message_text,
+                       void *buffer, int *recordSize)
 {
 
-	int offset = 0;
+    int offset = 0;
 
-	// Null-indicators
+    // Null-indicators
     bool nullBit = false;
     int nullAttributesIndicatorActualSize = getActualByteForNullsIndicator(attributeCount);
 
-	// Null-indicator for the fields
+    // Null-indicator for the fields
     memcpy((char *)buffer + offset, nullAttributesIndicator, nullAttributesIndicatorActualSize);
-	offset += nullAttributesIndicatorActualSize;
+    offset += nullAttributesIndicatorActualSize;
 
-	// Beginning of the actual data
-	// Note that the left-most bit represents the first field. Thus, the offset is 7 from right, not 0.
-	// e.g., if a tuple consists of four attributes and they are all nulls, then the bit representation will be: [11110000]
+    // Beginning of the actual data
+    // Note that the left-most bit represents the first field. Thus, the offset is 7 from right, not 0.
+    // e.g., if a tuple consists of four attributes and they are all nulls, then the bit representation will be: [11110000]
 
-	// Is the tweetid field not-NULL?
-	nullBit = nullAttributesIndicator[0] & (1 << 7);
-	if (!nullBit) {
-		memcpy((char *) buffer + offset, &tweetid, sizeof(int));
-		offset += sizeof(int);
-	}
+    // Is the tweetid field not-NULL?
+    nullBit = nullAttributesIndicator[0] & (1 << 7);
+    if (!nullBit) {
+        memcpy((char *) buffer + offset, &tweetid, sizeof(int));
+        offset += sizeof(int);
+    }
 
-	// Is the userid field not-NULL?
-	nullBit = nullAttributesIndicator[0] & (1 << 6);
-	if (!nullBit) {
-		memcpy((char *) buffer + offset, &userid, sizeof(int));
-		offset += sizeof(int);
-	}
-
-
-	// Is the sender_location field not-NULL?
-	nullBit = nullAttributesIndicator[0] & (1 << 5);
-	if (!nullBit) {
-		memcpy((char *) buffer + offset, &sender_location, sizeof(float));
-		offset += sizeof(float);
-	}
+    // Is the userid field not-NULL?
+    nullBit = nullAttributesIndicator[0] & (1 << 6);
+    if (!nullBit) {
+        memcpy((char *) buffer + offset, &userid, sizeof(int));
+        offset += sizeof(int);
+    }
 
 
-	// Is the sender_time field not-NULL?
-	nullBit = nullAttributesIndicator[0] & (1 << 4);
-	if (!nullBit) {
-		memcpy((char *) buffer + offset, &send_time, sizeof(float));
-		offset += sizeof(float);
-	}
+    // Is the sender_location field not-NULL?
+    nullBit = nullAttributesIndicator[0] & (1 << 5);
+    if (!nullBit) {
+        memcpy((char *) buffer + offset, &sender_location, sizeof(float));
+        offset += sizeof(float);
+    }
 
 
-	// Is the referred_topics field not-NULL?
-	nullBit = nullAttributesIndicator[0] & (1 << 3);
-	if (!nullBit) {
-		memcpy((char *) buffer + offset, &referred_topicsLength, sizeof(int));
-		offset += sizeof(int);
-		memcpy((char *) buffer + offset, referred_topics.c_str(), referred_topicsLength);
-		offset += referred_topicsLength;
-	}
+    // Is the sender_time field not-NULL?
+    nullBit = nullAttributesIndicator[0] & (1 << 4);
+    if (!nullBit) {
+        memcpy((char *) buffer + offset, &send_time, sizeof(float));
+        offset += sizeof(float);
+    }
 
 
-	// Is the message_text field not-NULL?
-	nullBit = nullAttributesIndicator[0] & (1 << 2);
-	if (!nullBit) {
-		memcpy((char *) buffer + offset, &message_textLength, sizeof(int));
-		offset += sizeof(int);
-		memcpy((char *) buffer + offset, message_text.c_str(), message_textLength);
-		offset += message_textLength;
-	}
+    // Is the referred_topics field not-NULL?
+    nullBit = nullAttributesIndicator[0] & (1 << 3);
+    if (!nullBit) {
+        memcpy((char *) buffer + offset, &referred_topicsLength, sizeof(int));
+        offset += sizeof(int);
+        memcpy((char *) buffer + offset, referred_topics.c_str(), referred_topicsLength);
+        offset += referred_topicsLength;
+    }
 
 
-	*recordSize = offset;
+    // Is the message_text field not-NULL?
+    nullBit = nullAttributesIndicator[0] & (1 << 2);
+    if (!nullBit) {
+        memcpy((char *) buffer + offset, &message_textLength, sizeof(int));
+        offset += sizeof(int);
+        memcpy((char *) buffer + offset, message_text.c_str(), message_textLength);
+        offset += message_textLength;
+    }
+
+
+    *recordSize = offset;
 }
 
 
 void prepareTweetTupleAfterDrop(int attributeCount, unsigned char *nullAttributesIndicator,
-		const int tweetid, const int userid,
-		const float sender_location, const float send_time,
-		const int message_textLength, const string &message_text,
-		void *buffer, int *recordSize)
+                                const int tweetid, const int userid,
+                                const float sender_location, const float send_time,
+                                const int message_textLength, const string &message_text,
+                                void *buffer, int *recordSize)
 {
 
-	int offset = 0;
+    int offset = 0;
 
-	// Null-indicators
+    // Null-indicators
     bool nullBit = false;
     int nullAttributesIndicatorActualSize = getActualByteForNullsIndicator(attributeCount);
 
-	// Null-indicator for the fields
+    // Null-indicator for the fields
     memcpy((char *)buffer + offset, nullAttributesIndicator, nullAttributesIndicatorActualSize);
-	offset += nullAttributesIndicatorActualSize;
+    offset += nullAttributesIndicatorActualSize;
 
-	// Beginning of the actual data
-	// Note that the left-most bit represents the first field. Thus, the offset is 7 from right, not 0.
-	// e.g., if a tuple consists of four attributes and they are all nulls, then the bit representation will be: [11110000]
+    // Beginning of the actual data
+    // Note that the left-most bit represents the first field. Thus, the offset is 7 from right, not 0.
+    // e.g., if a tuple consists of four attributes and they are all nulls, then the bit representation will be: [11110000]
 
-	// Is the tweetid field not-NULL?
-	nullBit = nullAttributesIndicator[0] & (1 << 7);
-	if (!nullBit) {
-		memcpy((char *) buffer + offset, &tweetid, sizeof(int));
-		offset += sizeof(int);
-	}
+    // Is the tweetid field not-NULL?
+    nullBit = nullAttributesIndicator[0] & (1 << 7);
+    if (!nullBit) {
+        memcpy((char *) buffer + offset, &tweetid, sizeof(int));
+        offset += sizeof(int);
+    }
 
-	// Is the userid field not-NULL?
-	nullBit = nullAttributesIndicator[0] & (1 << 6);
-	if (!nullBit) {
-		memcpy((char *) buffer + offset, &userid, sizeof(int));
-		offset += sizeof(int);
-	}
-
-
-	// Is the sender_location field not-NULL?
-	nullBit = nullAttributesIndicator[0] & (1 << 5);
-	if (!nullBit) {
-		memcpy((char *) buffer + offset, &sender_location, sizeof(float));
-		offset += sizeof(float);
-	}
+    // Is the userid field not-NULL?
+    nullBit = nullAttributesIndicator[0] & (1 << 6);
+    if (!nullBit) {
+        memcpy((char *) buffer + offset, &userid, sizeof(int));
+        offset += sizeof(int);
+    }
 
 
-	// Is the sender_time field not-NULL?
-	nullBit = nullAttributesIndicator[0] & (1 << 4);
-	if (!nullBit) {
-		memcpy((char *) buffer + offset, &send_time, sizeof(float));
-		offset += sizeof(float);
-	}
+    // Is the sender_location field not-NULL?
+    nullBit = nullAttributesIndicator[0] & (1 << 5);
+    if (!nullBit) {
+        memcpy((char *) buffer + offset, &sender_location, sizeof(float));
+        offset += sizeof(float);
+    }
 
 
-	// Is the message_text field not-NULL?
-	nullBit = nullAttributesIndicator[0] & (1 << 3);
-	if (!nullBit) {
-		memcpy((char *) buffer + offset, &message_textLength, sizeof(int));
-		offset += sizeof(int);
-		memcpy((char *) buffer + offset, message_text.c_str(), message_textLength);
-		offset += message_textLength;
-	}
+    // Is the sender_time field not-NULL?
+    nullBit = nullAttributesIndicator[0] & (1 << 4);
+    if (!nullBit) {
+        memcpy((char *) buffer + offset, &send_time, sizeof(float));
+        offset += sizeof(float);
+    }
 
 
-	*recordSize = offset;
+    // Is the message_text field not-NULL?
+    nullBit = nullAttributesIndicator[0] & (1 << 3);
+    if (!nullBit) {
+        memcpy((char *) buffer + offset, &message_textLength, sizeof(int));
+        offset += sizeof(int);
+        memcpy((char *) buffer + offset, message_text.c_str(), message_textLength);
+        offset += message_textLength;
+    }
+
+
+    *recordSize = offset;
 }
 
 
 void prepareTweetTupleAfterAdd(int attributeCount, unsigned char *nullAttributesIndicator,
-		const int tweetid, const int userid,
-		const float sender_location, const float send_time,
-		const int referred_topicsLength, const string &referred_topics,
-		const int message_textLength, const string &message_text,
-		const int status_msgLength, const string &status_msg,
-		void *buffer, int *recordSize)
+                               const int tweetid, const int userid,
+                               const float sender_location, const float send_time,
+                               const int referred_topicsLength, const string &referred_topics,
+                               const int message_textLength, const string &message_text,
+                               const int status_msgLength, const string &status_msg,
+                               void *buffer, int *recordSize)
 {
 
-	int offset = 0;
+    int offset = 0;
 
-	// Null-indicators
+    // Null-indicators
     bool nullBit = false;
     int nullAttributesIndicatorActualSize = getActualByteForNullsIndicator(attributeCount);
 
-	// Null-indicator for the fields
+    // Null-indicator for the fields
     memcpy((char *)buffer + offset, nullAttributesIndicator, nullAttributesIndicatorActualSize);
-	offset += nullAttributesIndicatorActualSize;
+    offset += nullAttributesIndicatorActualSize;
 
-	// Beginning of the actual data
-	// Note that the left-most bit represents the first field. Thus, the offset is 7 from right, not 0.
-	// e.g., if a tuple consists of four attributes and they are all nulls, then the bit representation will be: [11110000]
+    // Beginning of the actual data
+    // Note that the left-most bit represents the first field. Thus, the offset is 7 from right, not 0.
+    // e.g., if a tuple consists of four attributes and they are all nulls, then the bit representation will be: [11110000]
 
-	// Is the tweetid field not-NULL?
-	nullBit = nullAttributesIndicator[0] & (1 << 7);
-	if (!nullBit) {
-		memcpy((char *) buffer + offset, &tweetid, sizeof(int));
-		offset += sizeof(int);
-	}
+    // Is the tweetid field not-NULL?
+    nullBit = nullAttributesIndicator[0] & (1 << 7);
+    if (!nullBit) {
+        memcpy((char *) buffer + offset, &tweetid, sizeof(int));
+        offset += sizeof(int);
+    }
 
-	// Is the userid field not-NULL?
-	nullBit = nullAttributesIndicator[0] & (1 << 6);
-	if (!nullBit) {
-		memcpy((char *) buffer + offset, &userid, sizeof(int));
-		offset += sizeof(int);
-	}
+    // Is the userid field not-NULL?
+    nullBit = nullAttributesIndicator[0] & (1 << 6);
+    if (!nullBit) {
+        memcpy((char *) buffer + offset, &userid, sizeof(int));
+        offset += sizeof(int);
+    }
 
-	// Is the sender_location field not-NULL?
-	nullBit = nullAttributesIndicator[0] & (1 << 5);
-	if (!nullBit) {
-		memcpy((char *) buffer + offset, &sender_location, sizeof(float));
-		offset += sizeof(float);
-	}
+    // Is the sender_location field not-NULL?
+    nullBit = nullAttributesIndicator[0] & (1 << 5);
+    if (!nullBit) {
+        memcpy((char *) buffer + offset, &sender_location, sizeof(float));
+        offset += sizeof(float);
+    }
 
-	// Is the sender_time field not-NULL?
-	nullBit = nullAttributesIndicator[0] & (1 << 4);
-	if (!nullBit) {
-		memcpy((char *) buffer + offset, &send_time, sizeof(float));
-		offset += sizeof(float);
-	}
+    // Is the sender_time field not-NULL?
+    nullBit = nullAttributesIndicator[0] & (1 << 4);
+    if (!nullBit) {
+        memcpy((char *) buffer + offset, &send_time, sizeof(float));
+        offset += sizeof(float);
+    }
 
-	// Is the referred_topics field not-NULL?
-	nullBit = nullAttributesIndicator[0] & (1 << 3);
-	if (!nullBit) {
-		memcpy((char *) buffer + offset, &referred_topicsLength, sizeof(int));
-		offset += sizeof(int);
-		memcpy((char *) buffer + offset, referred_topics.c_str(), referred_topicsLength);
-		offset += referred_topicsLength;
-	}
+    // Is the referred_topics field not-NULL?
+    nullBit = nullAttributesIndicator[0] & (1 << 3);
+    if (!nullBit) {
+        memcpy((char *) buffer + offset, &referred_topicsLength, sizeof(int));
+        offset += sizeof(int);
+        memcpy((char *) buffer + offset, referred_topics.c_str(), referred_topicsLength);
+        offset += referred_topicsLength;
+    }
 
-	// Is the message_text field not-NULL?
-	nullBit = nullAttributesIndicator[0] & (1 << 2);
-	if (!nullBit) {
-		memcpy((char *) buffer + offset, &message_textLength, sizeof(int));
-		offset += sizeof(int);
-		memcpy((char *) buffer + offset, message_text.c_str(), message_textLength);
-		offset += message_textLength;
-	}
+    // Is the message_text field not-NULL?
+    nullBit = nullAttributesIndicator[0] & (1 << 2);
+    if (!nullBit) {
+        memcpy((char *) buffer + offset, &message_textLength, sizeof(int));
+        offset += sizeof(int);
+        memcpy((char *) buffer + offset, message_text.c_str(), message_textLength);
+        offset += message_textLength;
+    }
 
-	// Is the status_msg field not-NULL?
-	nullBit = nullAttributesIndicator[0] & (1 << 1);
-	if (!nullBit) {
-		memcpy((char *) buffer + offset, &status_msgLength, sizeof(int));
-		offset += sizeof(int);
-		memcpy((char *) buffer + offset, status_msg.c_str(), status_msgLength);
-		offset += status_msgLength;
-	}
+    // Is the status_msg field not-NULL?
+    nullBit = nullAttributesIndicator[0] & (1 << 1);
+    if (!nullBit) {
+        memcpy((char *) buffer + offset, &status_msgLength, sizeof(int));
+        offset += sizeof(int);
+        memcpy((char *) buffer + offset, status_msg.c_str(), status_msgLength);
+        offset += status_msgLength;
+    }
 
-	*recordSize = offset;
+    *recordSize = offset;
 }
 
 // Write UserIDs to a disk - do not use this code.
@@ -726,49 +726,45 @@ void prepareTweetTupleAfterAdd(int attributeCount, unsigned char *nullAttributes
 void writeUserIdsToDisk(set<int> &userids)
 {
     set<int>::iterator it;
-	remove("user_ids_file");
-	ofstream user_idsFile("user_ids_file", ios::out | ios::trunc | ios::binary);
+    remove("user_ids_file");
+    ofstream user_idsFile("user_ids_file", ios::out | ios::trunc | ios::binary);
 
-	if (user_idsFile.is_open()) {
-		user_idsFile.seekp(0, ios::beg);
-		for (it = userids.begin(); it != userids.end(); ++it){
-			user_idsFile.write(reinterpret_cast<const char*>(&*it), sizeof(int));
-		}
-		user_idsFile.close();
-	}
+    if (user_idsFile.is_open()) {
+        user_idsFile.seekp(0, ios::beg);
+        for (it = userids.begin(); it != userids.end(); ++it){
+            user_idsFile.write(reinterpret_cast<const char*>(&*it), sizeof(int));
+        }
+        user_idsFile.close();
+    }
 }
 
 // Read ages from the disk - do not use this code.
 //This is not a page-based operation. For test purpose only.
 void readUserIdsFromDisk(set<int> &userids, int numRecords)
 {
-	int userid;
+    int userid;
 
-	ifstream user_idsFile("user_ids_file", ios::in | ios::binary);
-	if (user_idsFile.is_open()) {
+    ifstream user_idsFile("user_ids_file", ios::in | ios::binary);
+    if (user_idsFile.is_open()) {
 
-		user_idsFile.seekg(0,ios::beg);
-		for (int i = 0; i < numRecords; i++) {
-			user_idsFile.read(reinterpret_cast<char*>(&userid), sizeof(int));
-			userids.insert(userid);
-		}
-		user_idsFile.close();
-	}
+        user_idsFile.seekg(0,ios::beg);
+        for (int i = 0; i < numRecords; i++) {
+            user_idsFile.read(reinterpret_cast<char*>(&userid), sizeof(int));
+            userids.insert(userid);
+        }
+        user_idsFile.close();
+    }
 }
 
 
 /** Customized test aiding functions **/
 uint32_t getLastTableId() {
-	fstream file;
-	file.open("catalog_information", fstream::in | fstream::out | fstream::binary);
-	void *data = malloc(sizeof(uint32_t));
-	file.read((char *)data, sizeof(uint32_t));
-	file.close();
-	return *((uint32_t *) data);
+    fstream file;
+    file.open("catalog_information", fstream::in | fstream::out | fstream::binary);
+    void *data = malloc(sizeof(uint32_t));
+    file.read((char *)data, sizeof(uint32_t));
+    file.close();
+    return *((uint32_t *) data);
 }
 
 #endif
-
-
-
-

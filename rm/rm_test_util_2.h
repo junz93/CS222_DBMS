@@ -436,7 +436,6 @@ void readSizesFromDisk(vector<int> &sizes, int numRecords)
 
     ifstream sizesFile("sizes_file", ios::in | ios::binary);
     if (sizesFile.is_open()) {
-
         sizesFile.seekg(0,ios::beg);
         for (int i = 0; i < numRecords; i++) {
             sizesFile.read(reinterpret_cast<char*>(&size), sizeof(int));
@@ -444,16 +443,6 @@ void readSizesFromDisk(vector<int> &sizes, int numRecords)
         }
         sizesFile.close();
     }
-}
-
-/** Customized test aiding functions **/
-uint32_t getLastTableId() {
-    fstream file;
-    file.open("catalog_information", fstream::in | fstream::out | fstream::binary);
-    void *data = malloc(sizeof(uint32_t));
-    file.read((char *)data, sizeof(uint32_t));
-    file.close();
-    return *((uint32_t *) data);
 }
 
 #endif

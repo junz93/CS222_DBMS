@@ -120,6 +120,8 @@ private:
     RC getAttributesByVersion(const string &tableName, const int version, vector<Attribute> &attrs);
 
     /** private functions for reading and writing metadata **/
+    RC prepareCurrentVersion(const string tableName, int &version);
+
     RC prepareTableIdAndTablesRid(const string tableName, int &tableId, RID &rid);
 
     RC prepareTableIdCurrentVersionAndTablesRid(const string tableName, int &tableId, int &version, RID &rid);
@@ -142,6 +144,10 @@ private:
     bool isSystemTuple(const string tableName, const RID rid);
 
     RC prepareRecordDescriptor(const string tableName, vector<Attribute> &recordDescriptor);
+
+    unsigned getDataLength(const vector<Attribute> &recordDescriptor, const void *data);
+
+    vector<Attribute> getNewRecordDescriptor(const vector<Attribute> recordDescriptor);
 
 };
 

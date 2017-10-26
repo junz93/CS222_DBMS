@@ -83,8 +83,8 @@ RC RelationManager::deleteTable(const string &tableName) {
 
     // delete schema in Catalog
     if (prepareTableIdAndTablesRid(tableName, tableId, rid) == FAIL) { return FAIL; }
-    if (deleteCatalogTuple(TABLES_TABLE, rid) == FAIL) {return FAIL;}
-    if (deleteTargetTableTuplesInColumnsTable(tableId) == FAIL) {return FAIL;}
+    if (deleteCatalogTuple(TABLES_TABLE, rid) == FAIL) { return FAIL; }
+    if (deleteTargetTableTuplesInColumnsTable(tableId) == FAIL) { return FAIL; }
     // delete table file
     if (rbfm->destroyFile(tableName) == FAIL) { return FAIL; }
 
@@ -115,10 +115,11 @@ RC RelationManager::getAttributes(const string &tableName, vector<Attribute> &at
     return SUCCESS;
 }
 
-
 RC RelationManager::insertTuple(const string &tableName, const void *data, RID &rid) {
     FileHandle fileHandle;
     vector<Attribute> recordDescriptor;
+    int currentVersion;
+    void *insertData = malloc(PAGE_SIZE);
 
     if (isSystemTable(tableName)) {
         return FAIL;
@@ -128,17 +129,37 @@ RC RelationManager::insertTuple(const string &tableName, const void *data, RID &
         return FAIL;
     }
 
-    prepareRecordDescriptor(tableName, recordDescriptor);
+    if (prepareRecordDescriptor(tableName, recordDescriptor) == FAIL) { return FAIL; }
+    if (prepareCurrentVersion(tableName, currentVersion) == FAIL) { return FAIL; }
 
-    if (rbfm->insertRecord(fileHandle, recordDescriptor, data, rid) == FAIL) {
-        return FAIL;
+    int formerRecordFieldNumber = recordDescriptor.size();
+    if (formerRecordFieldNumber % 8 == 0) {
+        int formerNullFlagLength = getByteOfNullsIndicator(formerRecordFieldNumber);
+        int nullFlagLength = formerNullFlagLength + 1;
+        memcpy(insertData, data, formerNullFlagLength);
+        memset((char *) insertData + formerNullFlagLength, 0x00, 1);
+        int dataLength = getDataLength(recordDescriptor, data);
+        memcpy((char *) insertData + nullFlagLength, (char *) data + formerNullFlagLength,
+               dataLength - formerNullFlagLength);
+        memcpy((char *) insertData + dataLength + 1, &currentVersion, sizeof(int));
+    } else {
+        int dataLength = getDataLength(recordDescriptor, data);
+        memcpy(insertData, data, dataLength);
+        memcpy((char *) insertData + dataLength, &currentVersion, sizeof(int));
     }
 
+    vector<Attribute> newRecordDescriptor = getNewRecordDescriptor(recordDescriptor);
+
+    if (rbfm->insertRecord(fileHandle, newRecordDescriptor, insertData, rid) == FAIL) {
+        return FAIL;
+    }
+    free(insertData);
+
     // print inserted record for debugging
-    void *dataToBeRead = malloc(PAGE_SIZE);
-    rbfm->readRecord(fileHandle, recordDescriptor, rid, dataToBeRead);
-    rbfm->printRecord(recordDescriptor, dataToBeRead);
-    free(dataToBeRead);
+    void *readData = malloc(PAGE_SIZE);
+    rbfm->readRecord(fileHandle, newRecordDescriptor, rid, readData);
+    rbfm->printRecord(newRecordDescriptor, readData);
+    free(readData);
 
     rbfm->closeFile(fileHandle);
 
@@ -187,10 +208,30 @@ RC RelationManager::updateTuple(const string &tableName, const void *data, const
 RC RelationManager::readTuple(const string &tableName, const RID &rid, void *data) {
     FileHandle fileHandle;
     vector<Attribute> recordDescriptor;
-    if (rbfm->openFile(tableName, fileHandle) == FAIL || getAttributes(tableName, recordDescriptor) == FAIL) {
+    int tupleVersion, currentVersion;
+    void *versionData = malloc(PAGE_SIZE);
+    if (rbfm->openFile(tableName, fileHandle) == FAIL || prepareRecordDescriptor(tableName, recordDescriptor) == FAIL) {
         return FAIL;
     }
-    if (rbfm->readRecord(fileHandle, recordDescriptor, rid, data) == FAIL) { return FAIL; }
+
+    if (isSystemTable(tableName)) {
+        if (rbfm->readRecord(fileHandle, recordDescriptor, rid, data) == FAIL) { return FAIL; }
+        rbfm->closeFile(fileHandle);
+        return SUCCESS;
+    }
+
+    readAttribute(tableName, rid, VERSION, versionData);
+    tupleVersion = *((int *) ((char *) versionData + 1));
+    free(versionData);
+    if (prepareCurrentVersion(tableName, currentVersion) == FAIL) { return FAIL; }
+    if (tupleVersion == currentVersion) {
+        if (rbfm->readRecord(fileHandle, getNewRecordDescriptor(recordDescriptor), rid, data) == FAIL) { return FAIL; }
+    } else {
+        if (getAttributesByVersion(tableName, tupleVersion, recordDescriptor) == FAIL) { return FAIL; }
+        if (rbfm->readRecord(fileHandle, getNewRecordDescriptor(recordDescriptor), rid, data) == FAIL) { return FAIL; }
+        // TODO: transfer data to current version format
+    }
+
     rbfm->closeFile(fileHandle);
     return SUCCESS;
 }
@@ -207,6 +248,9 @@ RC RelationManager::readAttribute(const string &tableName, const RID &rid, const
         return FAIL;
     }
     prepareRecordDescriptor(tableName, recordDescriptor);
+    if (!isSystemTable(tableName)) {
+        recordDescriptor = getNewRecordDescriptor(recordDescriptor);
+    }
     if (rbfm->readAttribute(fileHandle, recordDescriptor, rid, attributeName, data) == FAIL) {
         return FAIL;
     }
@@ -248,11 +292,6 @@ RC RelationManager::addAttribute(const string &tableName, const Attribute &attr)
     int tableId;
     int oldVersion, newVersion;
 
-    //for Debugging
-    vector<Attribute> recordDescriptor; //
-    prepareRecordDescriptorForColumnsTable(recordDescriptor); //
-
-
     prepareTableIdCurrentVersionAndTablesRid(tableName, tableId, oldVersion, tablesRid);
     // update Tables tuple by making version plus 1
     void *data = malloc(PAGE_SIZE);
@@ -283,7 +322,8 @@ RC RelationManager::addAttribute(const string &tableName, const Attribute &attr)
     }
     while (rm_scanIterator.getNextTuple(columnsRid, returnedData) != RM_EOF) {
         int nameLength = *((uint32_t *) ((char *) returnedData + nullFlagLength + sizeof(int)));
-        int columnPositionOffset = nullFieldIndicatorSize + sizeof(int) + sizeof(uint32_t) + nameLength + 2 * sizeof(int);
+        int columnPositionOffset =
+                nullFieldIndicatorSize + sizeof(int) + sizeof(uint32_t) + nameLength + 2 * sizeof(int);
         int versionOffset = nullFieldIndicatorSize + sizeof(int) + sizeof(uint32_t) + nameLength + 4 * sizeof(int);
         if (*((uint32_t *) ((char *) returnedData + versionOffset)) == oldVersion) {
             largestColumnPos = max(largestColumnPos, *((int *) ((char *) returnedData + columnPositionOffset)));
@@ -298,10 +338,10 @@ RC RelationManager::addAttribute(const string &tableName, const Attribute &attr)
     rm_scanIterator.close();
     // insert new attribute tuple to Columns table
     void *tuple = malloc(PAGE_SIZE);
-    prepareTupleForColumns(COLUMNS_ATTR_NUM, tableId, attr.name, attr.type, attr.length, largestColumnPos + 1, false, newVersion, tuple);
+    prepareTupleForColumns(COLUMNS_ATTR_NUM, tableId, attr.name, attr.type, attr.length, largestColumnPos + 1, false,
+                           newVersion, tuple);
     insertCatalogTuple(COLUMNS_TABLE, tuple, columnsRid);
     free(tuple);
-
 
     return SUCCESS;
 }
@@ -449,7 +489,7 @@ void RelationManager::prepareRecordDescriptorForColumnsTable(vector<Attribute> &
 }
 
 /**  private functions called by getAttributes **/
-RC RelationManager::getAttributesByVersion(const string &tableName, const int version, vector<Attribute> &attrs){
+RC RelationManager::getAttributesByVersion(const string &tableName, const int version, vector<Attribute> &attrs) {
     int tableId, currentVersion;
     unordered_map<int, Attribute> positionAttributeMap;
     RID rid;
@@ -471,6 +511,26 @@ RC RelationManager::getAttributesByVersion(const string &tableName, const int ve
 }
 
 /** private functions for reading and writing metadata **/
+RC RelationManager::prepareCurrentVersion(const string tableName, int &version) {
+    RM_ScanIterator rm_scanIterator;
+    RID rid;
+    void *returnedData = malloc(PAGE_SIZE);
+    void *scanValueOfTableName = malloc(tableName.size() + sizeof(uint32_t));
+    vector<string> attributeNames;
+    attributeNames.push_back(VERSION);
+    int nullFlagLength = getByteOfNullsIndicator(attributeNames.size());
+
+    prepareScanValue(tableName, scanValueOfTableName);
+    if (scan(TABLES_TABLE, TABLE_NAME, EQ_OP, scanValueOfTableName, attributeNames, rm_scanIterator) == FAIL) {
+        return FAIL;
+    }
+    if (rm_scanIterator.getNextTuple(rid, returnedData) == RM_EOF) { return FAIL; }
+    version = *((int *) ((char *) returnedData + nullFlagLength));
+    free(returnedData);
+    free(scanValueOfTableName);
+    rm_scanIterator.close();
+    return SUCCESS;
+}
 
 RC RelationManager::prepareTableIdAndTablesRid(const string tableName, int &tableId, RID &rid) {
     RM_ScanIterator rm_scanIterator;
@@ -652,7 +712,7 @@ bool RelationManager::isSystemTuple(const string tableName, const RID rid) {
     }
     void *returnedData = malloc(PAGE_SIZE);
     readAttribute(tableName, rid, SYSTEM_FLAG, returnedData);
-    int systemFlag = *((int *) ((char *)returnedData + getByteOfNullsIndicator(1)));
+    int systemFlag = *((int *) ((char *) returnedData + getByteOfNullsIndicator(1)));
     free(returnedData);
     return systemFlag == 1;
 }
@@ -666,6 +726,51 @@ RC RelationManager::prepareRecordDescriptor(const string tableName, vector<Attri
         if (getAttributes(tableName, recordDescriptor) == FAIL) { return FAIL; }
     }
     return SUCCESS;
+}
+
+unsigned RelationManager::getDataLength(const vector<Attribute> &recordDescriptor, const void *data) {
+    auto numOfFields = recordDescriptor.size();
+    unsigned dataLength = getByteOfNullsIndicator(numOfFields);
+    const byte *pFlag = (const byte *) data;         // pointer to null flags
+    const byte *pData = pFlag + getByteOfNullsIndicator(numOfFields);  // pointer to actual field data
+    uint8_t nullFlag = 0x80;     // cannot use (signed) byte
+
+    // compute the length of the new record
+    for (const Attribute &attr : recordDescriptor) {
+        if (!(*pFlag & nullFlag)) {
+            switch (attr.type) {
+                case TypeInt:
+                case TypeReal:
+                    dataLength += attr.length;
+                    pData += attr.length;
+                    break;
+                case TypeVarChar:
+                    uint32_t length = *((const uint32_t *) pData);
+                    dataLength += 4 + length;
+                    pData += 4 + length;
+                    break;
+            }
+        }
+
+        if (nullFlag == 0x01) {
+            nullFlag = 0x80;
+            ++pFlag;
+        } else {
+            nullFlag = nullFlag >> 1;
+        }
+    }
+
+    return dataLength;
+}
+
+vector<Attribute> RelationManager::getNewRecordDescriptor(const vector<Attribute> recordDescriptor) {
+    vector<Attribute> newRecordDescriptor = recordDescriptor;
+    Attribute attribute;
+    attribute.name = VERSION;
+    attribute.type = TypeInt;
+    attribute.length = sizeof(int);
+    newRecordDescriptor.push_back(attribute);
+    return newRecordDescriptor;
 }
 
 

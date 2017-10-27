@@ -3,6 +3,7 @@
 #include <cstring>
 #include <iostream>
 #include <memory>
+#include <unordered_map>
 #include "pfm.h"
 #include "rbfm.h"
 using namespace std;
@@ -138,7 +139,7 @@ RC RecordBasedFileManager::readRecord(FileHandle &fileHandle,
         fileHandle.readPage(pageNum, page);
         recordOffset = getRecordOffset(page, slotNum);
     }
-    transmuteRecord(page, recordOffset, recordDescriptor, data);
+    readRecord(page, recordOffset, recordDescriptor, data);
 
     return SUCCESS;
 }
@@ -476,18 +477,19 @@ unsigned RecordBasedFileManager::computeRecordLength(const vector<Attribute> &re
     // compute the length of the new record
     for (const Attribute &attr : recordDescriptor) {
         if (!(*pFlag & nullFlag)) {
+            unsigned fieldLength;
             switch (attr.type) {
                 case TypeInt:
                 case TypeReal:
-                    recordLength += attr.length;
-                    pData += attr.length;
+                    fieldLength = attr.length;
                     break;
                 case TypeVarChar:
-                    uint32_t length = *((const uint32_t*) pData);
-                    recordLength += length;
-                    pData += 4 + length;
+                    fieldLength = *((const uint32_t*) pData);
+                    pData += 4;
                     break;
             }
+            recordLength += fieldLength;
+            pData += fieldLength;
         }
 
         if (nullFlag == 0x01) {
@@ -624,10 +626,10 @@ void RecordBasedFileManager::writeRecord(byte *page,
     }
 }
 
-void RecordBasedFileManager::transmuteRecord(const byte *page,
-                                             unsigned recordOffset,
-                                             const vector<Attribute> &recordDescriptor,
-                                             void *data)
+void RecordBasedFileManager::readRecord(const byte *page,
+                                        unsigned recordOffset,
+                                        const vector<Attribute> &recordDescriptor,
+                                        void *data)
 {
     auto numOfFields = recordDescriptor.size();
 
@@ -700,6 +702,81 @@ void* RecordBasedFileManager::readField(const byte *page,
     }
     memcpy(pData, page + recordOffset + beginOffset, fieldLength);
     return pData + fieldLength;
+}
+
+void RecordBasedFileManager::transformRecord(const vector<Attribute> &oldDescriptor, const void *oldData,
+                                             const vector<Attribute> &newDescriptor, void *newData)
+{
+    unordered_map<string, unsigned> oldMap;
+    for (unsigned i = 0; i < oldDescriptor.size(); ++i) {
+        oldMap[oldDescriptor[i].name] = i;
+    }
+    vector<unsigned> attrNums;
+    unsigned n = 0;
+    for (const Attribute &attr : newDescriptor) {
+        auto iter = oldMap.find(attr.name);
+        if (iter == oldMap.end()) {
+            attrNums.push_back(oldDescriptor.size());
+        } else {
+            assert(iter->second >= n && "If this assertion fails, please tell Jun Zhang.");
+            n = iter->second;
+            attrNums.push_back(iter->second);
+        }
+    }
+
+    const byte *pOldFlag = (const byte*) oldData;
+    const byte *pOldData = pOldFlag + getBytesOfNullFlags(oldDescriptor.size());
+    uint8_t oldFlagMask = 0x80;
+
+    byte *pNewFlag = (byte*) newData;
+    memset(pNewFlag, 0, getBytesOfNullFlags(newDescriptor.size()));
+    byte *pNewData = pNewFlag + getBytesOfNullFlags(newDescriptor.size());
+    uint8_t newFlagMask = 0x80;
+
+    unsigned curNum = 0;
+    for (auto attrNum : attrNums) {
+        if (attrNum == oldDescriptor.size()) {
+            *pNewFlag = *pNewFlag | newFlagMask;
+        } else {
+            for (; curNum <= attrNum; ++curNum) {
+                if (*pOldFlag & oldFlagMask) {
+                    if (curNum == attrNum) {
+                        *pNewFlag = *pNewFlag | newFlagMask;
+                    }
+                } else {
+                    unsigned length;
+                    switch (oldDescriptor[curNum].type) {
+                        case TypeInt:
+                        case TypeReal:
+                            length = oldDescriptor[curNum].length;
+                            break;
+                        case TypeVarChar:
+                            length = *((const uint32_t*) pOldData) + 4;
+                            break;
+                    }
+                    if (curNum == attrNum) {
+                        memcpy(pNewData, pOldData, length);
+                        pNewData += length;
+                    }
+                    pOldData += length;
+                }
+
+                if (oldFlagMask == 0x01) {
+                    oldFlagMask = 0x80;
+                    ++pOldFlag;
+                } else {
+                    oldFlagMask = oldFlagMask >> 1;
+                }
+            }
+        }
+
+        if (newFlagMask == 0x01) {
+            newFlagMask = 0x80;
+            ++pNewFlag;
+        } else {
+            newFlagMask = newFlagMask >> 1;
+        }
+    }
 }
 
 RBFM_ScanIterator::RBFM_ScanIterator(): rbfm(RecordBasedFileManager::instance())

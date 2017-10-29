@@ -383,6 +383,7 @@ RC RelationManager::prepareTableIdAndTablesRid(const string tableName, int &tabl
     }
     if (rm_scanIterator.getNextTuple(rid, returnedData) == RM_EOF) { return FAIL; }
     tableId = *((int *) ((char *) returnedData + getByteOfNullsIndicator(attributeNames.size())));
+    free(scanValueOfTableName);
     free(returnedData);
     rm_scanIterator.close();
     return SUCCESS;

@@ -147,9 +147,9 @@ RC RecordBasedFileManager::printRecord(const vector<Attribute> &recordDescriptor
 {
     const byte *pFlag = (const byte*) data;
     const byte *pData = pFlag + getBytesOfNullFlags(recordDescriptor.size());
-    uint8_t nullFlag = 0x80;     // cannot use (signed) byte
+    uint8_t flagMask = 0x80;     // cannot use (signed) byte
     for (const Attribute &attr : recordDescriptor) {
-        if (*pFlag & nullFlag) {
+        if (*pFlag & flagMask) {
             cout << attr.name << ": NULL\t";
         } else {
             switch (attr.type) {
@@ -173,11 +173,11 @@ RC RecordBasedFileManager::printRecord(const vector<Attribute> &recordDescriptor
             }
         }
 
-        if (nullFlag == 0x01) {
-            nullFlag = 0x80;
+        if (flagMask == 0x01) {
+            flagMask = 0x80;
             ++pFlag;
         } else {
-            nullFlag = nullFlag >> 1;
+            flagMask = flagMask >> 1;
         }
     }
     cout << endl;
@@ -471,11 +471,11 @@ unsigned RecordBasedFileManager::computeRecordLength(const vector<Attribute> &re
     unsigned recordLength = NUM_OF_FIELDS_SZ + getBytesOfNullFlags(numOfFields) + numOfFields*FIELD_OFFSET_SZ;
     const byte *pFlag = (const byte*) data;         // pointer to null flags
     const byte *pData = pFlag + getBytesOfNullFlags(numOfFields);  // pointer to actual field data
-    uint8_t nullFlag = 0x80;     // cannot use (signed) byte
+    uint8_t flagMask = 0x80;     // cannot use (signed) byte
 
     // compute the length of the new record
     for (const Attribute &attr : recordDescriptor) {
-        if (!(*pFlag & nullFlag)) {
+        if (!(*pFlag & flagMask)) {
             switch (attr.type) {
                 case TypeInt:
                 case TypeReal:
@@ -490,11 +490,11 @@ unsigned RecordBasedFileManager::computeRecordLength(const vector<Attribute> &re
             }
         }
 
-        if (nullFlag == 0x01) {
-            nullFlag = 0x80;
+        if (flagMask == 0x01) {
+            flagMask = 0x80;
             ++pFlag;
         } else {
-            nullFlag = nullFlag >> 1;
+            flagMask = flagMask >> 1;
         }
     }
 
@@ -591,10 +591,10 @@ void RecordBasedFileManager::writeRecord(byte *page,
     // pointers to record data in memory
     const byte *pFlag = (const byte*) data;
     const byte *pData = pFlag + getBytesOfNullFlags(numOfFields);
-    uint8_t nullFlag = 0x80;
+    uint8_t flagMask = 0x80;
 
     for (const Attribute &attr : recordDescriptor) {
-        if (*pFlag & nullFlag) {    // this field is NULL
+        if (*pFlag & flagMask) {    // this field is NULL
             *((uint16_t*) pOffset) = fieldBegin;
         } else {
             unsigned fieldLength;
@@ -615,11 +615,11 @@ void RecordBasedFileManager::writeRecord(byte *page,
         }
 
         pOffset += FIELD_OFFSET_SZ;
-        if (nullFlag == 0x01) {
-            nullFlag = 0x80;
+        if (flagMask == 0x01) {
+            flagMask = 0x80;
             ++pFlag;
         } else {
-            nullFlag = nullFlag >> 1;
+            flagMask = flagMask >> 1;
         }
     }
 }
@@ -642,10 +642,10 @@ void RecordBasedFileManager::transmuteRecord(const byte *page,
     // pointers to record data that are returned to caller
     byte *pFlag = (byte*) data;
     byte *pData = pFlag + getBytesOfNullFlags(numOfFields);
-    uint8_t nullFlag = 0x80;
+    uint8_t flagMask = 0x80;
 
     for (const auto &attr : recordDescriptor) {
-        if (!(*pFlag & nullFlag)) {
+        if (!(*pFlag & flagMask)) {
             unsigned fieldEnd = *((uint16_t*) pOffset);    // end offset of the current field
             unsigned fieldLength = fieldEnd - fieldBegin;
             switch (attr.type) {
@@ -664,11 +664,11 @@ void RecordBasedFileManager::transmuteRecord(const byte *page,
         }
 
         pOffset += FIELD_OFFSET_SZ;
-        if (nullFlag == 0x01) {
-            nullFlag = 0x80;
+        if (flagMask == 0x01) {
+            flagMask = 0x80;
             ++pFlag;
         } else {
-            nullFlag = nullFlag >> 1;
+            flagMask = flagMask >> 1;
         }
     }
 }
@@ -680,8 +680,8 @@ void* RecordBasedFileManager::readField(const byte *page,
                                         void *data)
 {
     const byte *pFlag = page + recordOffset + NUM_OF_FIELDS_SZ + fieldNum / 8;
-    uint8_t nullFlag = 0x80 >> (fieldNum % 8);
-    if (*pFlag & nullFlag) {
+    uint8_t flagMask = 0x80 >> (fieldNum % 8);
+    if (*pFlag & flagMask) {
         return nullptr;
     }
 
@@ -811,21 +811,21 @@ void RBFM_ScanIterator::transmuteRecord(unsigned recordOffset, void *data)
 
     byte *pFlag = (byte*) data;
     byte *pData = pFlag + rbfm->getBytesOfNullFlags(attrNums.size());
-    uint8_t nullFlag = 0x80;
+    uint8_t flagMask = 0x80;
     for (auto attrNum : attrNums) {
         Attribute attr = recordDescriptor[attrNum];
         void *pNext = rbfm->readField(page, recordOffset, attrNum, attr, pData);
         if (pNext == nullptr) {
-            *pFlag = *pFlag | nullFlag;
+            *pFlag = *pFlag | flagMask;
         } else {
             pData = (byte*) pNext;
         }
 
-        if (nullFlag == 0x01) {
-            nullFlag = 0x80;
+        if (flagMask == 0x01) {
+            flagMask = 0x80;
             ++pFlag;
         } else {
-            nullFlag = nullFlag >> 1;
+            flagMask = flagMask >> 1;
         }
     }
 }

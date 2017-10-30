@@ -97,9 +97,6 @@ private:
     CompOp compOp;
     const void *value;
 
-    // TODO: possible ways to store FineHandle in this class
-    // 1. Have a pointer to FileHandle as a member, and dynamically allocate a FileHandle object in RelationManager::scan
-    // 2. Have a FileHandle object as a member, and set it directly in RelationManager::scan
     FileHandle *fileHandle = nullptr;   // the FileHandle object should be dynamically allocated
     byte page[PAGE_SIZE];
     bool containData;

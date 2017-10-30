@@ -1,14 +1,15 @@
 1. Basic information
-Team number (e.g., 01) : 
-#1 Student ID : 
-#1 Student Name : 
-#2 Student ID : 
-#2 Student Name : 
+Team number (e.g., 01) : 13
+#1 Student ID : 56323792
+#1 Student Name : Jun Zhang
+#2 Student ID : 20282757
+#2 Student Name : Yuhan Zheng
 OS (bit) : Ubuntu 16.04 (64-bit)
 gcc version : 5.4.0
 
 
 2. Meta-data
+// TODO: Complete this section
 - Show your meta-data design (Tables and Columns table) and information about each column.
 
 
@@ -60,13 +61,21 @@ We set the slot length to 0 in the slot directory to indicate that this record i
 
 
 5. File Format
-- Show your file format design
+The first page is a header page containing a file signature (1 byte) and three counters (2 bytes for each) for read, write
+and append operations respectively.
+Any other page is either a directory page or a data page.
+
+A directory page stores the size of free space of some data pages. The last 4 bytes stores the page number of the next
+directory page.
+
+A data page stores the record data.
 
 
 6. Implementation Detail
-- Other implementation details goes here.
+RBFM_ScanIterator:
+In the RBFM_ScanIterator class, we cache the current page data, and keep track of the current page number, the current
+slot number, and total number of slots in the current page. Each time getNextRecord function is called, we keep scanning
+the current page from the last position, and looking for the record that satisfies the given condition. If we reach the
+end of the current page, we read the next page from disk and scan it.
 
-
-7. Other (optional)
-- Freely use this section to tell us about things that are related to the project 2, but not related to the other sections (optional)
-
+// TODO: add some details about RelationManager to this section

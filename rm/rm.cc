@@ -132,12 +132,6 @@ RC RelationManager::insertTuple(const string &tableName, const void *data, RID &
         return FAIL;
     }
 
-    // print inserted record for debugging
-    void *dataToBeRead = malloc(PAGE_SIZE);
-    rbfm->readRecord(fileHandle, recordDescriptor, rid, dataToBeRead);
-    rbfm->printRecord(recordDescriptor, dataToBeRead);
-    free(dataToBeRead);
-
     rbfm->closeFile(fileHandle);
 
     return SUCCESS;
@@ -255,12 +249,6 @@ RC RelationManager::insertCatalogTuple(const string &tableName, const void *data
     if (rbfm->insertRecord(fileHandle, recordDescriptor, data, rid) == FAIL) {
         return FAIL;
     }
-
-    // print inserted record for debugging
-    void *dataToBeRead = malloc(PAGE_SIZE);
-    rbfm->readRecord(fileHandle, recordDescriptor, rid, dataToBeRead);
-    rbfm->printRecord(recordDescriptor, dataToBeRead);
-    free(dataToBeRead);
 
     rbfm->closeFile(fileHandle);
 

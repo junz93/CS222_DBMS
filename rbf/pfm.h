@@ -1,19 +1,19 @@
 #ifndef _pfm_h_
 #define _pfm_h_
 
-typedef unsigned PageNum;
-typedef int RC;
-typedef char byte;
-
-const byte FILE_IDEN = 0xaa;
-#define PAGE_SIZE 4096
-#define SUCCESS 0
-#define FAIL (-1)
-
 #include <climits>
 #include <fstream>
 #include <string>
 using namespace std;
+
+typedef unsigned PageNum;
+typedef int RC;
+typedef char byte;
+
+#define PAGE_SIZE 4096
+#define SUCCESS 0
+#define FAIL (-1)
+const byte FILE_IDEN = 0xaa;
 
 class FileHandle;
 

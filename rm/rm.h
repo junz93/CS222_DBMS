@@ -1,13 +1,10 @@
-
 #ifndef _rm_h_
 #define _rm_h_
 
 #include <string>
 #include <vector>
 #include <unordered_map>
-
 #include "../rbf/rbfm.h"
-
 using namespace std;
 
 # define RM_EOF (-1)  // end of a scan operator

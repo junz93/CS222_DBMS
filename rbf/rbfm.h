@@ -6,9 +6,7 @@
 #include <cmath>
 #include <string>
 #include <vector>
-
 #include "../rbf/pfm.h"
-
 using namespace std;
 
 // size of page space storing page and record info

@@ -1,16 +1,12 @@
 #ifndef CS222_UTIL_H
 #define CS222_UTIL_H
 
-#include <iostream>
+#include <climits>
+#include <cmath>
+#include <cstdlib>
+#include <cstring>
 #include <string>
-#include <cassert>
 #include <sys/stat.h>
-#include <stdlib.h>
-#include <string.h>
-#include <stdexcept>
-#include <stdio.h>
-#include <math.h>
-
 using namespace std;
 
 // Calculate actual bytes for nulls-indicator for the given field counts

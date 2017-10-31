@@ -9,8 +9,9 @@ gcc version : 5.4.0
 
 
 2. Meta-data
-// TODO: Complete this section
-- Show your meta-data design (Tables and Columns table) and information about each column.
+Almost the same as described on project2 wiki except for adding one column named system-flag, which is used to distinguish system metadata from users' data.
+Tables (table-id:int, table-name:varchar(50), file-name:varchar(50), system-flag:int)
+Columns(table-id:int, column-name:varchar(50), column-type:int, column-length:int, column-position:int, system-flag:int)
 
 
 3. Internal Record Format
@@ -78,4 +79,20 @@ slot number, and total number of slots in the current page. Each time getNextRec
 the current page from the last position, and looking for the record that satisfies the given condition. If we reach the
 end of the current page, we read the next page from disk and scan it.
 
-// TODO: add some details about RelationManager to this section
+RM_ScanIterator:
+Add a RBFM_ScanIterator pointer so as to call RBFM_ScanIterator.
+
+For createCatalog() and createTable():
+Almost implemented as described on project2 wiki, but we store the current largest table-id to one file called catalog_information, for createCatalog() the table-id 2 is stored, for createTable() it retrieves the largest table-id, make use of it and then update it.
+
+For createCatalog(), createTable(), deleteCatalog(), deleteTable():
+Almost implemented as described on project2 wiki, but the tuple operations here are private functions which can not be called as API, so as to avoid users modifying system metadata.
+
+For tuple operations:
+Call record operations in RBFM. Will check Catalog to make sure the target tuple is not system metadata (by making use of system-flag), tuple operations except for readTuple() will fail if the target tuple has system-flag as true.
+
+For getAttributes():
+Scan the Tables table to get the table-id first, based on which do a scan on Columns table and get all column-names.
+
+For scan() and readAttribute():
+Call corresponding functions in RBFM layer.

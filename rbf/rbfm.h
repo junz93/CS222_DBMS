@@ -214,7 +214,7 @@ private:
 
     void writeRecord(byte *page, unsigned recordOffset, const vector<Attribute> &recordDescriptor, const void *data);
 
-    void transmuteRecord(const byte *page, unsigned recordOffset, const vector<Attribute> &recordDescriptor, void *data);
+    void readRecord(const byte *page, unsigned recordOffset, const vector<Attribute> &recordDescriptor, void *data);
 
     // Read the given field and write it to data
     // return nullptr if the field is NULL, otherwise return a pointer to the position right after the written data

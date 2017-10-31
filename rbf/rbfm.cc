@@ -138,7 +138,7 @@ RC RecordBasedFileManager::readRecord(FileHandle &fileHandle,
         fileHandle.readPage(pageNum, page);
         recordOffset = getRecordOffset(page, slotNum);
     }
-    transmuteRecord(page, recordOffset, recordDescriptor, data);
+    readRecord(page, recordOffset, recordDescriptor, data);
 
     return SUCCESS;
 }
@@ -154,11 +154,11 @@ RC RecordBasedFileManager::printRecord(const vector<Attribute> &recordDescriptor
         } else {
             switch (attr.type) {
                 case TypeInt:
-                    cout << attr.name << ": " << *((const int32_t*) pData) << '\t';
+                    cout << attr.name << ": " << *((const int32_t*) pData) << "  ";
                     pData += 4;
                     break;
                 case TypeReal:
-                    cout << attr.name << ": " << *((const float*) pData) << '\t';
+                    cout << attr.name << ": " << *((const float*) pData) << "  ";
                     pData += 4;
                     break;
                 case TypeVarChar:
@@ -167,7 +167,7 @@ RC RecordBasedFileManager::printRecord(const vector<Attribute> &recordDescriptor
                     char str[length + 1];
                     memcpy(str, pData, length);
                     str[length] = 0;
-                    cout << attr.name << ": " << str << '\t';
+                    cout << attr.name << ": " << str << "  ";
                     pData += length;
                     break;
             }
@@ -624,10 +624,10 @@ void RecordBasedFileManager::writeRecord(byte *page,
     }
 }
 
-void RecordBasedFileManager::transmuteRecord(const byte *page,
-                                             unsigned recordOffset,
-                                             const vector<Attribute> &recordDescriptor,
-                                             void *data)
+void RecordBasedFileManager::readRecord(const byte *page,
+                                        unsigned recordOffset,
+                                        const vector<Attribute> &recordDescriptor,
+                                        void *data)
 {
     auto numOfFields = recordDescriptor.size();
 

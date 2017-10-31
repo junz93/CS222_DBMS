@@ -149,25 +149,24 @@ RC RecordBasedFileManager::printRecord(const vector<Attribute> &recordDescriptor
     const byte *pData = pFlag + getBytesOfNullFlags(recordDescriptor.size());
     uint8_t flagMask = 0x80;     // cannot use (signed) byte
     for (const Attribute &attr : recordDescriptor) {
+        cout << attr.name << ": ";
         if (*pFlag & flagMask) {
-            cout << attr.name << ": NULL\t";
+            cout << "NULL  ";
         } else {
             switch (attr.type) {
                 case TypeInt:
-                    cout << attr.name << ": " << *((const int32_t*) pData) << "  ";
+                    cout << *((const int32_t*) pData) << "  ";
                     pData += 4;
                     break;
                 case TypeReal:
-                    cout << attr.name << ": " << *((const float*) pData) << "  ";
+                    cout << *((const float*) pData) << "  ";
                     pData += 4;
                     break;
                 case TypeVarChar:
                     uint32_t length = *((const uint32_t*) pData);
                     pData += 4;
-                    char str[length + 1];
-                    memcpy(str, pData, length);
-                    str[length] = 0;
-                    cout << attr.name << ": " << str << "  ";
+                    string s(pData, length);
+                    cout << s << "  ";
                     pData += length;
                     break;
             }

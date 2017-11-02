@@ -59,7 +59,7 @@ typedef enum
 The scan iterator is NOT required to be implemented for the part 1 of the project 
 ********************************************************************************/
 
-# define RBFM_EOF (-1)  // end of a scan operator
+#define RBFM_EOF (-1)  // end of a scan operator
 
 // RBFM_ScanIterator is an iterator to go through records
 // The way to use it is like the following:

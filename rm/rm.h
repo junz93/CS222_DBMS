@@ -7,7 +7,7 @@
 #include "../rbf/rbfm.h"
 using namespace std;
 
-# define RM_EOF (-1)  // end of a scan operator
+#define RM_EOF (-1)  // end of a scan operator
 
 class RelationManager;
 
@@ -22,9 +22,12 @@ public:
     ~RM_ScanIterator() {};
 
     // "data" follows the same format as RelationManager::insertTuple()
-    RC getNextTuple(RID &rid, void *data) { return rbfm_scanIterator.getNextRecord(rid, data); };
+    RC getNextTuple(RID &rid, void *data)
+    {
+        return (rbfm_scanIterator.getNextRecord(rid, data) == RBFM_EOF) ? RM_EOF : SUCCESS;
+    }
 
-    RC close() { return rbfm_scanIterator.close(); };
+    RC close() { return rbfm_scanIterator.close(); }
 
 private:
     RBFM_ScanIterator rbfm_scanIterator;

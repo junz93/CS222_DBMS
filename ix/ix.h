@@ -6,7 +6,7 @@
 
 #include "../rbf/rbfm.h"
 
-# define IX_EOF (-1)  // end of the index scan
+#define IX_EOF (-1)  // end of the index scan
 
 class IX_ScanIterator;
 class IXFileHandle;

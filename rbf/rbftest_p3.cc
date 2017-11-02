@@ -3,10 +3,10 @@
 #include <string>
 #include <cassert>
 #include <sys/stat.h>
-#include <stdlib.h> 
+#include <stdlib.h>
 #include <string.h>
 #include <stdexcept>
-#include <stdio.h> 
+#include <stdio.h>
 
 #include "pfm.h"
 #include "rbfm.h"
@@ -59,7 +59,7 @@ int RBFTest_private_3(RecordBasedFileManager *rbfm) {
     void *record2 = malloc(1000);
     void *returnedData = malloc(1000);
     void *returnedData2 = malloc(1000);
-    int numRecords = 5000;
+    int numRecords = 50000;
 
     vector<Attribute> recordDescriptorForTwitterUser,
             recordDescriptorForTweetMessage;
@@ -102,13 +102,13 @@ int RBFTest_private_3(RecordBasedFileManager *rbfm) {
 
         rids2.push_back(rid2);
 
-        if (i%500 == 0 && i != 0) {
+        if (i%5000 == 0 && i != 0) {
             cout << i << " / " << numRecords << " records inserted so far for both files." << endl;
         }
     }
 
     cout << "Inserting " << numRecords << " records done for the both files." << endl << endl;
-    
+
     // Close the file - test_private_3a
     rc = rbfm->closeFile(fileHandle);
     if (rc != success) {
@@ -150,7 +150,7 @@ int RBFTest_private_3(RecordBasedFileManager *rbfm) {
         cout << "***** [FAIL] Test Case Private 3 Failed! *****" << endl << endl;
         return -1;
     }
-        
+
     // Write RIDs of test_private_3a to a disk - do not use this code. This is not a page-based operation. For test purpose only.
     ofstream ridsFile("test_private_3a_rids", ios::out | ios::trunc | ios::binary);
 

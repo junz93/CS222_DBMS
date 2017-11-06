@@ -286,8 +286,9 @@ RC RecordBasedFileManager::updateRecord(FileHandle &fileHandle,
     unsigned dataSlotNum;
     byte *dataPage = nullptr;     // the page that contains the actual record data
     if (recordOffset >= PAGE_SIZE) {    // this record has been moved to another page (not in the original page)
-        dataPageNum = *((PageNum*) (page + recordOffset - PAGE_SIZE));
-        dataSlotNum = *((uint16_t*) (page + recordOffset - PAGE_SIZE + PAGE_NUM_SZ));
+        recordOffset -= PAGE_SIZE;
+        dataPageNum = *((PageNum*) (page + recordOffset));
+        dataSlotNum = *((uint16_t*) (page + recordOffset + PAGE_NUM_SZ));
         dataPage = new byte[PAGE_SIZE];
         fileHandle.readPage(dataPageNum, dataPage);
         recordOffset = getRecordOffset(dataPage, dataSlotNum);
@@ -408,7 +409,7 @@ RC RecordBasedFileManager::readAttribute(FileHandle &fileHandle,
     }
 
     byte *pData = (byte*) data + 1;
-    if (readField(page, recordOffset, attrNum, recordDescriptor[attrNum], pData) == nullptr) {
+    if (readField(page, recordOffset, attrNum, numOfFields, recordDescriptor[attrNum], pData) == nullptr) {
         memset(data, 0x80, 1);
     } else {
         memset(data, 0, 1);
@@ -467,7 +468,7 @@ RC RecordBasedFileManager::scan(FileHandle &fileHandle,
 unsigned RecordBasedFileManager::computeRecordLength(const vector<Attribute> &recordDescriptor, const void *data)
 {
     auto numOfFields = recordDescriptor.size();
-    unsigned recordLength = NUM_OF_FIELDS_SZ + getBytesOfNullFlags(numOfFields) + numOfFields*FIELD_OFFSET_SZ;
+    unsigned recordLength = getBytesOfNullFlags(numOfFields) + numOfFields*FIELD_OFFSET_SZ;
     const byte *pFlag = (const byte*) data;         // pointer to null flags
     const byte *pData = pFlag + getBytesOfNullFlags(numOfFields);  // pointer to actual field data
     uint8_t flagMask = 0x80;     // cannot use (signed) byte
@@ -576,14 +577,11 @@ void RecordBasedFileManager::writeRecord(byte *page,
 {
     auto numOfFields = recordDescriptor.size();
 
-    // write the number of fields of the new record to page
-    *((uint16_t*) (page + recordOffset)) = numOfFields;
-
     // copy the null flags from record data in memory to page
-    memcpy(page + recordOffset + NUM_OF_FIELDS_SZ, data, getBytesOfNullFlags(numOfFields));
+    memcpy(page + recordOffset, data, getBytesOfNullFlags(numOfFields));
 
     // pointers to page data read from disk
-    byte *pOffset = page + recordOffset + NUM_OF_FIELDS_SZ + getBytesOfNullFlags(numOfFields);   // pointer to field offset
+    byte *pOffset = page + recordOffset + getBytesOfNullFlags(numOfFields);   // pointer to field offset
     byte *pField = pOffset + numOfFields*FIELD_OFFSET_SZ;     // pointer to actual field data
     unsigned fieldBegin = 0;    // begin offset of a field (relative to the start position of actual field data)
 
@@ -631,10 +629,10 @@ void RecordBasedFileManager::readRecord(const byte *page,
     auto numOfFields = recordDescriptor.size();
 
     // copy the null flags from page to record data returned to caller
-    memcpy(data, page + recordOffset + NUM_OF_FIELDS_SZ, getBytesOfNullFlags(numOfFields));
+    memcpy(data, page + recordOffset, getBytesOfNullFlags(numOfFields));
 
     // pointers to page data
-    const byte *pOffset = page + recordOffset + NUM_OF_FIELDS_SZ + getBytesOfNullFlags(numOfFields);
+    const byte *pOffset = page + recordOffset + getBytesOfNullFlags(numOfFields);
     const byte *pField = pOffset + numOfFields * FIELD_OFFSET_SZ;
     unsigned fieldBegin = 0;    // begin offset of a field (relative to the start position of fields)
 
@@ -675,16 +673,16 @@ void RecordBasedFileManager::readRecord(const byte *page,
 void* RecordBasedFileManager::readField(const byte *page,
                                         unsigned recordOffset,
                                         unsigned fieldNum,
+                                        unsigned numOfFields,
                                         const Attribute &attribute,
                                         void *data)
 {
-    const byte *pFlag = page + recordOffset + NUM_OF_FIELDS_SZ + fieldNum / 8;
+    const byte *pFlag = page + recordOffset + fieldNum / 8;
     uint8_t flagMask = 0x80 >> (fieldNum % 8);
     if (*pFlag & flagMask) {
         return nullptr;
     }
 
-    unsigned numOfFields = *((uint16_t*) (page + recordOffset));
     unsigned beginOffset = getFieldBeginOffset(page, recordOffset, fieldNum, numOfFields);
     unsigned fieldLength = getFieldEndOffset(page, recordOffset, fieldNum, numOfFields) - beginOffset;
     byte *pData = (byte*) data;
@@ -744,7 +742,8 @@ RC RBFM_ScanIterator::getNextRecord(RID &rid, void *data)
             } else {
                 unique_ptr<byte[]> field(new byte[recordLength]);
                 Attribute conditionAttr = recordDescriptor[conditionAttrNum];
-                if (rbfm->readField(page, recordOffset, conditionAttrNum, conditionAttr, field.get()) == nullptr) {
+                auto numOfFields = recordDescriptor.size();
+                if (!rbfm->readField(page, recordOffset, conditionAttrNum, numOfFields, conditionAttr, field.get())) {
                     field.reset();
                 }
                 compareResult = compare(conditionAttr.type, compOp, field.get(), value);
@@ -811,9 +810,10 @@ void RBFM_ScanIterator::transmuteRecord(unsigned recordOffset, void *data)
     byte *pFlag = (byte*) data;
     byte *pData = pFlag + rbfm->getBytesOfNullFlags(attrNums.size());
     uint8_t flagMask = 0x80;
+    auto numOfFields = recordDescriptor.size();
     for (auto attrNum : attrNums) {
         Attribute attr = recordDescriptor[attrNum];
-        void *pNext = rbfm->readField(page, recordOffset, attrNum, attr, pData);
+        void *pNext = rbfm->readField(page, recordOffset, attrNum, numOfFields, attr, pData);
         if (pNext == nullptr) {
             *pFlag = *pFlag | flagMask;
         } else {

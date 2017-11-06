@@ -10,7 +10,7 @@
 using namespace std;
 
 // size of page space storing page and record info
-const unsigned NUM_OF_FIELDS_SZ = 2;     // size of space storing the number of fields in a record
+//const unsigned NUM_OF_FIELDS_SZ = 2;     // size of space storing the number of fields in a record
 const unsigned FIELD_OFFSET_SZ = 2;      // size of space storing the offset of a field in a record
 const unsigned FREE_SPACE_SZ = 2;        // size of space storing the number of free bytes in a page
 const unsigned NUM_OF_SLOTS_SZ = 2;      // size of space storing the number of slots in a page
@@ -216,7 +216,7 @@ private:
 
     // Read the given field and write it to data
     // return nullptr if the field is NULL, otherwise return a pointer to the position right after the written data
-    void* readField(const byte *page, unsigned recordOffset, unsigned fieldNum, const Attribute &attribute, void *data);
+    void* readField(const byte *page, unsigned recordOffset, unsigned fieldNum, unsigned numOfFields, const Attribute &attribute, void *data);
 
     unsigned getFreeBytes(const byte *page);
 
@@ -312,7 +312,7 @@ unsigned RecordBasedFileManager::getFieldBeginOffset(const byte *page, unsigned 
 {
     assert(fieldNum < numOfFields);
 
-    unsigned preOffset = NUM_OF_FIELDS_SZ + getBytesOfNullFlags(numOfFields);
+    unsigned preOffset = getBytesOfNullFlags(numOfFields);
     if (fieldNum == 0) {
         return preOffset + numOfFields * FIELD_OFFSET_SZ;
     }
@@ -326,7 +326,7 @@ unsigned RecordBasedFileManager::getFieldEndOffset(const byte *page, unsigned re
 {
     assert(fieldNum < numOfFields);
 
-    unsigned preOffset = NUM_OF_FIELDS_SZ + getBytesOfNullFlags(numOfFields);
+    unsigned preOffset = getBytesOfNullFlags(numOfFields);
     unsigned endOffset = *((uint16_t*) (page + recordOffset + preOffset + fieldNum*FIELD_OFFSET_SZ));
     return preOffset + numOfFields * FIELD_OFFSET_SZ + endOffset;
 }

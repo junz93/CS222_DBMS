@@ -13,7 +13,7 @@ typedef char byte;
 #define PAGE_SIZE 4096
 #define SUCCESS 0
 #define FAIL (-1)
-const byte FILE_IDEN = 0xaa;
+const byte FILE_ID = 0xaa;
 
 class FileHandle;
 
@@ -39,11 +39,12 @@ private:
 class FileHandle
 {
     friend class PagedFileManager;
+
 public:
     // variables to keep the counter for each operation
-    unsigned readPageCounter;
-    unsigned writePageCounter;
-    unsigned appendPageCounter;
+    unsigned readPageCounter = 0;
+    unsigned writePageCounter = 0;
+    unsigned appendPageCounter = 0;
     
     FileHandle();                                                         // Default constructor
     ~FileHandle();                                                        // Destructor
@@ -55,11 +56,13 @@ public:
     RC collectCounterValues(unsigned &readPageCount, unsigned &writePageCount, unsigned &appendPageCount);  // Put the current counter values into variables
 
 private:
-    static const int RD_OFFSET = 1;
-    static const int WR_OFFSET = 1 + sizeof(unsigned);
-    static const int APP_OFFSET = 1 + 2*sizeof(unsigned);
+    static const int RD_OFFSET = sizeof(FILE_ID);
+    static const int WR_OFFSET = RD_OFFSET + sizeof(unsigned);
+    static const int APP_OFFSET = WR_OFFSET + sizeof(unsigned);
+    static const int NUM_OF_PAGES_OFFSET = APP_OFFSET + sizeof(unsigned);
 
     fstream file;
+    unsigned numOfPages = 0;
 
     RC openFile(const string &fileName);
     RC closeFile();

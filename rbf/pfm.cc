@@ -36,7 +36,7 @@ RC PagedFileManager::createFile(const string &fileName)
     // create a new file with one header page
     ofstream file(fileName, fstream::out | fstream::binary);
     byte header[PAGE_SIZE] = {0};
-    header[0] = FILE_IDEN;   // first byte of the header page is a fingerprint for identifying files created by this function
+    header[0] = FILE_ID;   // first byte of the header page is a fingerprint for identifying files created by this function
     file.write(header, PAGE_SIZE);
     return (file) ? SUCCESS : (destroyFile(fileName), FAIL);
 }
@@ -60,7 +60,7 @@ RC PagedFileManager::closeFile(FileHandle &fileHandle)
 }
 
 
-FileHandle::FileHandle(): readPageCounter(0), writePageCounter(0), appendPageCounter(0)
+FileHandle::FileHandle()
 {
 }
 
@@ -82,13 +82,14 @@ RC FileHandle::openFile(const string &fileName)
     }
     byte header[PAGE_SIZE];
     file.read(header, PAGE_SIZE);
-    if (!file || header[0] != FILE_IDEN) {
+    if (!file || header[0] != FILE_ID) {
         file.close();
         return FAIL;
     }
     readPageCounter = *((unsigned*) (header + RD_OFFSET));
     writePageCounter = *((unsigned*) (header + WR_OFFSET));
     appendPageCounter = *((unsigned*) (header + APP_OFFSET));
+    numOfPages = *((unsigned*) (header + NUM_OF_PAGES_OFFSET));
     return SUCCESS;
 }
 
@@ -106,6 +107,7 @@ RC FileHandle::closeFile()
     memcpy(header + RD_OFFSET, &readPageCounter, sizeof(unsigned));
     memcpy(header + WR_OFFSET, &writePageCounter, sizeof(unsigned));
     memcpy(header + APP_OFFSET, &appendPageCounter, sizeof(unsigned));
+    memcpy(header + NUM_OF_PAGES_OFFSET, &numOfPages, sizeof(unsigned));
     file.seekp(0, fstream::beg);
     file.write(header, PAGE_SIZE);
     file.close();
@@ -139,16 +141,13 @@ RC FileHandle::appendPage(const void *data)
 {
     file.seekp(0, fstream::end);
     file.write((const byte*) data, PAGE_SIZE);
-    return (file) ? (++appendPageCounter, SUCCESS) : FAIL;
+    return (file) ? (++appendPageCounter, ++numOfPages, SUCCESS) : FAIL;
 }
 
 
 unsigned FileHandle::getNumberOfPages()
 {
-    auto curPos = file.tellg();     // save the current position of file marker
-    auto numOfBytes = file.seekg(0, fstream::end).tellg();
-    file.seekg(curPos);     // restore the file marker
-    return (numOfBytes <= 0) ? 0 : numOfBytes/PAGE_SIZE - 1;
+    return numOfPages;
 }
 
 

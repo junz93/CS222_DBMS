@@ -52,6 +52,7 @@ class IndexManager {
 
     private:
         static IndexManager *_index_manager;
+        PagedFileManager *pfm = PagedFileManager::instance();
 };
 
 
@@ -74,12 +75,14 @@ class IX_ScanIterator {
 
 
 class IXFileHandle {
-    public:
+    friend class IndexManager;
+public:
 
+    // TODO: these variables are useless, since the FileHandle object contains these counters
     // variables to keep counter for each operation
-    unsigned ixReadPageCounter;
-    unsigned ixWritePageCounter;
-    unsigned ixAppendPageCounter;
+    unsigned ixReadPageCounter = 0;
+    unsigned ixWritePageCounter = 0;
+    unsigned ixAppendPageCounter = 0;
 
     // Constructor
     IXFileHandle();
@@ -87,9 +90,31 @@ class IXFileHandle {
     // Destructor
     ~IXFileHandle();
 
+    RC readPage(PageNum pageNum, void *data)
+    {
+        return fileHandle.readPage(pageNum, data);
+    }
+
+    RC writePage(PageNum pageNum, const void *data)
+    {
+        return fileHandle.writePage(pageNum, data);
+    }
+
+    RC appendPage(const void *data)
+    {
+        return fileHandle.appendPage(data);
+    }
+
+    unsigned getNumberOfPages()
+    {
+        return fileHandle.getNumberOfPages();
+    }
+
 	// Put the current counter values of associated PF FileHandles into variables
 	RC collectCounterValues(unsigned &readPageCount, unsigned &writePageCount, unsigned &appendPageCount);
 
+private:
+    FileHandle fileHandle;
 };
 
 #endif

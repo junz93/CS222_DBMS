@@ -25,16 +25,19 @@ RecordBasedFileManager::~RecordBasedFileManager()
 {
 }
 
-RC RecordBasedFileManager::createFile(const string &fileName) {
+RC RecordBasedFileManager::createFile(const string &fileName)
+{
     return PagedFileManager::instance()->createFile(fileName);
 }
 
-RC RecordBasedFileManager::destroyFile(const string &fileName) {
+RC RecordBasedFileManager::destroyFile(const string &fileName)
+{
     return PagedFileManager::instance()->destroyFile(fileName);
 }
 
-RC RecordBasedFileManager::openFile(const string &fileName, FileHandle &fileHandle) {
-    if (PagedFileManager::instance()->openFile(fileName, fileHandle) == -1) {
+RC RecordBasedFileManager::openFile(const string &fileName, FileHandle &fileHandle)
+{
+    if (PagedFileManager::instance()->openFile(fileName, fileHandle) == FAIL) {
         return FAIL;
     }
     if (fileHandle.getNumberOfPages() == 0) {
@@ -45,7 +48,8 @@ RC RecordBasedFileManager::openFile(const string &fileName, FileHandle &fileHand
     return SUCCESS;
 }
 
-RC RecordBasedFileManager::closeFile(FileHandle &fileHandle) {
+RC RecordBasedFileManager::closeFile(FileHandle &fileHandle)
+{
     return PagedFileManager::instance()->closeFile(fileHandle);
 }
 
@@ -507,7 +511,7 @@ RC RecordBasedFileManager::seekFreePage(FileHandle &fileHandle, unsigned size, P
     bool hasFreeHeader = false;
     bool hasFreePage = false;
 
-    // scan through all the directory header pages to look for a page with enough free space
+    // scan all the directory header pages to look for a page with enough free space
     PageNum headerNum = 0;
     byte header[PAGE_SIZE];
     while (headerNum < numOfPages) {

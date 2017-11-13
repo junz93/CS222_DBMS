@@ -54,6 +54,8 @@ public:
     RC appendPage(const void *data);                                      // Append a specific page
     unsigned getNumberOfPages();                                          // Get the number of pages in the file
     RC collectCounterValues(unsigned &readPageCount, unsigned &writePageCount, unsigned &appendPageCount);  // Put the current counter values into variables
+    RC readHeaderPage(void *data);
+    RC writeHeaderPage(const void *data);
 
 private:
     static const int RD_OFFSET = sizeof(FILE_ID);

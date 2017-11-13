@@ -18,7 +18,7 @@ const unsigned SLOT_OFFSET_SZ = 2;       // size of space storing the offset of 
 const unsigned SLOT_LENGTH_SZ = 2;       // size of space storing the length of a record in a page
 const unsigned PAGE_NUM_SZ = sizeof(PageNum);
 const unsigned SLOT_NUM_SZ = NUM_OF_SLOTS_SZ;
-const unsigned POINTER_SZ = PAGE_NUM_SZ + SLOT_NUM_SZ;
+const unsigned RID_SZ = PAGE_NUM_SZ + SLOT_NUM_SZ;
 
 const unsigned MAX_NUM_OF_ENTRIES = (PAGE_SIZE - PAGE_NUM_SZ) / (PAGE_NUM_SZ + FREE_SPACE_SZ);  // max number of entries in a directory page
 
@@ -29,6 +29,7 @@ typedef struct
     unsigned slotNum;    // slot number in the page
 } RID;
 
+int compare(RID o1, RID o2);
 
 // Attribute
 typedef enum { TypeInt = 0, TypeReal, TypeVarChar } AttrType;

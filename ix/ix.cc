@@ -44,6 +44,7 @@ RC IndexManager::openFile(const string &fileName, IXFileHandle &ixfileHandle)
         setLeaf(root);
         ixfileHandle.appendPage(root);
     }
+    return SUCCESS;
 }
 
 RC IndexManager::closeFile(IXFileHandle &ixfileHandle)
@@ -365,8 +366,6 @@ unsigned IndexManager::findChildNumOffset(const byte *node, const Attribute &att
         unsigned keyLength = getKeyLength(attribute, curKey);
         RID curRid;
         loadRid(node, offset + keyLength, curRid);
-//        curRid.pageNum = *((PageNum*) (node + offset + keyLength));
-//        curRid.slotNum = *((uint16_t*) (node + offset + keyLength + PAGE_NUM_SZ));
         if (compareKey(attribute, key, rid, curKey, curRid) < 0) {
             break;
         }

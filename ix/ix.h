@@ -67,19 +67,30 @@ private:
 
     RC insertDataEntry(byte *node, unsigned entryLength, const Attribute &attribute, const void *key, const RID &rid);
 
+    // return the offset of the child pointer in a non-leaf node for the given composite key
+    unsigned findChildNumOffset(const byte *node, const Attribute &attribute, const void *key, const RID &rid) const;
+
+    // return the offset of the child pointer in a non-leaf node for the given key
+    unsigned findChildNumOffset(const byte *node, const Attribute &attribute, const void *key) const;
+
     void printBtree(IXFileHandle &ixfileHandle, PageNum nodeNum, const Attribute &attribute, unsigned level) const;
 
     // print the key and return its length (including the length part of varchar)
     unsigned printKey(const Attribute &attribute, const void *key) const;
 
     // compare two composite keys (key, rid)
-    int compareKey(AttrType type, const void *key1, const RID &rid1, const void *key2, const RID &rid2) const;
+    int compareKey(const Attribute &attribute,
+                   const void *key1, const RID &rid1,
+                   const void *key2, const RID &rid2) const;
 
     // compare two keys
-    int compareKey(AttrType type, const void *key1, const void *key2) const;
+    int compareKey(const Attribute &attribute, const void *key1, const void *key2) const;
 
     // return the length of the key (including the length part of varchar)
     unsigned getKeyLength(Attribute attribute, const void *key) const;
+
+    // read RID from the given node and store it in rid argument
+    void loadRid(const byte *node, unsigned offset, RID &rid) const;
 
     PageNum getRoot(IXFileHandle &ixfileHandle) const;
     RC setRoot(IXFileHandle &ixfileHandle, PageNum rootNum);
@@ -98,6 +109,25 @@ private:
     PageNum getNextNum(const byte *node) const;
     void setNextNum(byte *node, PageNum nextNum);
 };
+
+inline
+unsigned IndexManager::getKeyLength(Attribute attribute, const void *key) const
+{
+    switch (attribute.type) {
+        case TypeInt:
+        case TypeReal:
+            return attribute.length;
+        case TypeVarChar:
+            return *((const uint32_t*) key) + 4;
+    }
+}
+
+inline
+void IndexManager::loadRid(const byte *node, unsigned offset, RID &rid) const
+{
+    rid.pageNum = *((PageNum*) (node + offset));
+    rid.slotNum = *((uint16_t*) (node + offset + PAGE_NUM_SZ));
+}
 
 inline
 unsigned IndexManager::getFreeSpace(const byte *node) const

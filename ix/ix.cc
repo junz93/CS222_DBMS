@@ -81,7 +81,34 @@ RC IndexManager::insertEntry(IXFileHandle &ixfileHandle, const Attribute &attrib
 
 RC IndexManager::deleteEntry(IXFileHandle &ixfileHandle, const Attribute &attribute, const void *key, const RID &rid)
 {
-    return -1;
+    PageNum nodeNum = getRoot(ixfileHandle);
+    byte node[PAGE_SIZE];
+    while (true) {
+        ixfileHandle.readPage(nodeNum, node);
+        if (!isLeaf(node)) {
+            unsigned childNumOffset = findChildNumOffset(node, attribute, key, rid);
+            nodeNum = *((PageNum*) (node + childNumOffset));
+        } else {
+            unsigned freeBytes = getFreeSpace(node);
+            unsigned offset = LEAF_HEADER_SZ;
+            while (offset < PAGE_SIZE - freeBytes) {
+                const void *curKey = node + offset;
+                unsigned keyLength = getKeyLength(attribute, curKey);
+                RID curRid;
+                loadRid(node, offset + keyLength, curRid);
+                if (compareKey(attribute, key, rid, curKey, curRid) == 0) {
+                    unsigned entryLength = keyLength + RID_SZ;
+                    memmove(node + offset, node + offset + entryLength, PAGE_SIZE - freeBytes - offset - entryLength);
+                    setFreeSpace(node, freeBytes + entryLength);
+                    ixfileHandle.writePage(nodeNum, node);
+                    return SUCCESS;
+                }
+                offset += keyLength + RID_SZ;
+            }
+            // the data entry (key, rid) does not exist
+            return FAIL;
+        }
+    }
 }
 
 RC IndexManager::scan(IXFileHandle &ixfileHandle,
@@ -102,39 +129,39 @@ void IndexManager::printBtree(IXFileHandle &ixfileHandle, const Attribute &attri
     cout << endl;
 }
 
-void IndexManager::printBtree(IXFileHandle &ixfileHandle, PageNum nodeNum, const Attribute &attribute, unsigned level) const
+void IndexManager::printBtree(IXFileHandle &ixfileHandle, PageNum nodeNum,
+                              const Attribute &attribute, unsigned level) const
 {
     byte node[PAGE_SIZE];
     ixfileHandle.readPage(nodeNum, node);
     unsigned freeBytes = getFreeSpace(node);
     if (!isLeaf(node)) {
+        vector<PageNum> childNums;
         cout << string(4*level, ' ') << "{\"keys\": [";
         unsigned keyOffset = NONLEAF_HEADER_SZ + NODE_PTR_SZ;
+        childNums.push_back(*((PageNum*) (node + keyOffset - NODE_PTR_SZ)));
         while (keyOffset < PAGE_SIZE - freeBytes) {
+            if (childNums.size() != 1) {
+                cout << ',';
+            }
             cout << '\"';
             keyOffset += printKey(attribute, node + keyOffset);
             cout << '(' << *((PageNum*) (node + keyOffset)) << ',';
             cout << *((uint16_t*) (node + keyOffset + PAGE_NUM_SZ)) << ')';
             cout << '\"';
-            keyOffset += RID_SZ + NODE_PTR_SZ;
-            if (keyOffset < PAGE_SIZE - freeBytes) {
-                cout <<  ',';
-            }
+            keyOffset += RID_SZ;
+            childNums.push_back(*((PageNum*) (node + keyOffset)));
+            keyOffset += NODE_PTR_SZ;
         }
         cout << "]," << endl;
         cout << string(4*level, ' ') << " \"children\": [" << endl;
-        unsigned ptrOffset = NONLEAF_HEADER_SZ;
-        while (ptrOffset < PAGE_SIZE - freeBytes) {
-            PageNum childNum = *((PageNum*) (node + ptrOffset));
-            printBtree(ixfileHandle, childNum, attribute, level + 1);
-            ptrOffset += NODE_PTR_SZ + getKeyLength(attribute, node + ptrOffset + NODE_PTR_SZ) + RID_SZ;
-            if (ptrOffset < PAGE_SIZE - freeBytes) {
-                cout << ',';
+        for (unsigned i = 0; i < childNums.size(); ++i) {
+            if (i != 0) {
+                cout << ',' << endl;
             }
-            cout << endl;
+            printBtree(ixfileHandle, childNums[i], attribute, level + 1);
         }
-
-        cout << string(4*level, ' ') << "]}";
+        cout << endl << string(4*level, ' ') << "]}";
     } else {
         cout << string(4*level, ' ') << "{\"keys\": [";
         const void *curKey = nullptr;
@@ -142,7 +169,7 @@ void IndexManager::printBtree(IXFileHandle &ixfileHandle, PageNum nodeNum, const
         bool isFirst = true;
         unsigned offset = LEAF_HEADER_SZ;
         while (offset < PAGE_SIZE - freeBytes) {
-            if (curKey == nullptr || compareKey(attribute.type, node + offset, curKey) != 0) {
+            if (curKey == nullptr || compareKey(attribute, node + offset, curKey) != 0) {
                 if (curKey != nullptr) {
                     cout << "]\",";
                 }
@@ -205,20 +232,19 @@ RC IndexManager::insertEntry(IXFileHandle &ixfileHandle, PageNum nodeNum,
             isSplit = false;
             return SUCCESS;
         } else {    // split the current leaf node
-//            printBtree(ixfileHandle, attribute);
             unsigned offset = LEAF_HEADER_SZ;
+            unsigned keyLength;
             while (offset < PAGE_SIZE - freeBytes + entryLength) {
-                unsigned keyLength = getKeyLength(attribute, node + offset);
+                keyLength = getKeyLength(attribute, node + offset);
                 if (offset - LEAF_HEADER_SZ + keyLength + RID_SZ > MAX_LEAF_SPACE / 2) {
-                    memcpy(newChildKey, node + offset, keyLength);
-                    newChildRid.pageNum = *((PageNum*) (node + offset + keyLength));
-                    newChildRid.slotNum = *((uint16_t*) (node + offset + keyLength + PAGE_NUM_SZ));
                     break;
                 }
                 offset += keyLength + RID_SZ;
             }
             unsigned numOfMove = PAGE_SIZE - freeBytes + entryLength - offset;  // number of bytes moved to the new leaf node
             assert((numOfMove <= MAX_LEAF_SPACE) && "The new data entry is too large!");
+            memcpy(newChildKey, node + offset, keyLength);
+            loadRid(node, offset + keyLength, newChildRid);
             newChildNum = ixfileHandle.getNumberOfPages();
             memmove(node + PAGE_SIZE + LEAF_HEADER_SZ, node + offset, numOfMove);   // move entries to the new leaf page
             memset(node + PAGE_SIZE, 0, LEAF_HEADER_SZ);    // initialize leaf node header
@@ -244,19 +270,8 @@ RC IndexManager::insertEntry(IXFileHandle &ixfileHandle, PageNum nodeNum,
             return SUCCESS;
         }
     } else {    // non-leaf node
-        unsigned offset = NONLEAF_HEADER_SZ + NODE_PTR_SZ;
-        while (offset < PAGE_SIZE - freeBytes) {
-            const void *curKey = node + offset;
-            unsigned keyLength = getKeyLength(attribute, curKey);
-            RID curRid;
-            curRid.pageNum = *((PageNum*) (node + offset + keyLength));
-            curRid.slotNum = *((uint16_t*) (node + offset + keyLength + PAGE_NUM_SZ));
-            if (compareKey(attribute.type, key, rid, curKey, curRid) < 0) {
-                break;
-            }
-            offset += keyLength + RID_SZ + NODE_PTR_SZ;
-        }
-        PageNum childNum = *((PageNum*) (node + offset - NODE_PTR_SZ));
+        unsigned childNumOffset = findChildNumOffset(node, attribute, key, rid);
+        PageNum childNum = *((PageNum*) (node + childNumOffset));
         if (insertEntry(ixfileHandle, childNum,
                         attribute, key, rid,
                         isSplit, newChildKey, newChildRid, newChildNum) == FAIL) {
@@ -269,11 +284,12 @@ RC IndexManager::insertEntry(IXFileHandle &ixfileHandle, PageNum nodeNum,
         unsigned entryLength = getKeyLength(attribute, newChildKey) + RID_SZ + NODE_PTR_SZ;
 
         // insert the new index entry into the current (non-leaf) node
-        memmove(node + offset + entryLength, node + offset, PAGE_SIZE - offset - freeBytes);
-        memcpy(node + offset, newChildKey, entryLength - NODE_PTR_SZ - RID_SZ);
-        *((PageNum*) (node + offset + entryLength - NODE_PTR_SZ - SLOT_NUM_SZ - PAGE_NUM_SZ)) = newChildRid.pageNum;
-        *((uint16_t*) (node + offset + entryLength - NODE_PTR_SZ - SLOT_NUM_SZ)) = newChildRid.slotNum;
-        *((PageNum*) (node + offset + entryLength - NODE_PTR_SZ)) = newChildNum;
+        unsigned keyOffset = childNumOffset + NODE_PTR_SZ;
+        memmove(node + keyOffset + entryLength, node + keyOffset, PAGE_SIZE - keyOffset - freeBytes);
+        memcpy(node + keyOffset, newChildKey, entryLength - NODE_PTR_SZ - RID_SZ);
+        *((PageNum*) (node + keyOffset + entryLength - NODE_PTR_SZ - SLOT_NUM_SZ - PAGE_NUM_SZ)) = newChildRid.pageNum;
+        *((uint16_t*) (node + keyOffset + entryLength - NODE_PTR_SZ - SLOT_NUM_SZ)) = newChildRid.slotNum;
+        *((PageNum*) (node + keyOffset + entryLength - NODE_PTR_SZ)) = newChildNum;
 
         if (entryLength <= freeBytes) {
             setFreeSpace(node, freeBytes - entryLength);
@@ -295,9 +311,9 @@ RC IndexManager::insertEntry(IXFileHandle &ixfileHandle, PageNum nodeNum,
             memcpy(newChildKey, node + offset, keyLength);
             newChildRid.pageNum = *((PageNum*) (node + offset + keyLength));
             newChildRid.slotNum = *((uint16_t*) (node + offset + keyLength + PAGE_NUM_SZ));
+            newChildNum = ixfileHandle.getNumberOfPages();
             setFreeSpace(node, PAGE_SIZE - offset);
             offset += keyLength + RID_SZ;
-            newChildNum = ixfileHandle.getNumberOfPages();
             memmove(node + PAGE_SIZE + NONLEAF_HEADER_SZ, node + offset, numOfMove);   // move entries to the new leaf page
             memset(node + PAGE_SIZE, 0, NONLEAF_HEADER_SZ);    // initialize non-leaf node header
             setFreeSpace(node + PAGE_SIZE, PAGE_SIZE - NONLEAF_HEADER_SZ - numOfMove);
@@ -315,15 +331,13 @@ RC IndexManager::insertDataEntry(byte *node, unsigned entryLength,
 {
     // search for the insert position
     unsigned freeBytes = getFreeSpace(node);
-//    assert(entryLength <= freeBytes && "The leaf node does not have enough space for the new data entry");
     unsigned offset = LEAF_HEADER_SZ;
     while (offset < PAGE_SIZE - freeBytes) {
         const void *curKey = node + offset;
         unsigned keyLength = getKeyLength(attribute, curKey);
         RID curRid;
-        curRid.pageNum = *((PageNum*) (node + offset + keyLength));
-        curRid.slotNum = *((uint16_t*) (node + offset + keyLength + PAGE_NUM_SZ));
-        int cmp = compareKey(attribute.type, key, rid, curKey, curRid);
+        loadRid(node, offset + keyLength, curRid);
+        int cmp = compareKey(attribute, key, rid, curKey, curRid);
         if (cmp == 0) {
             // error: this entry (key, rid) has already existed!
             return FAIL;
@@ -341,11 +355,39 @@ RC IndexManager::insertDataEntry(byte *node, unsigned entryLength,
     return SUCCESS;
 }
 
-int IndexManager::compareKey(AttrType type,
+unsigned IndexManager::findChildNumOffset(const byte *node, const Attribute &attribute,
+                                          const void *key, const RID &rid) const
+{
+    unsigned freeBytes = getFreeSpace(node);
+    unsigned offset = NONLEAF_HEADER_SZ + NODE_PTR_SZ;
+    while (offset < PAGE_SIZE - freeBytes) {
+        const void *curKey = node + offset;
+        unsigned keyLength = getKeyLength(attribute, curKey);
+        RID curRid;
+        loadRid(node, offset + keyLength, curRid);
+//        curRid.pageNum = *((PageNum*) (node + offset + keyLength));
+//        curRid.slotNum = *((uint16_t*) (node + offset + keyLength + PAGE_NUM_SZ));
+        if (compareKey(attribute, key, rid, curKey, curRid) < 0) {
+            break;
+        }
+        offset += keyLength + RID_SZ + NODE_PTR_SZ;
+    }
+    return offset - NODE_PTR_SZ;
+}
+
+unsigned IndexManager::findChildNumOffset(const byte *node, const Attribute &attribute, const void *key) const
+{
+    RID dummyRid;
+    dummyRid.pageNum = 0;
+    dummyRid.slotNum = 0;
+    return findChildNumOffset(node, attribute, key, dummyRid);
+}
+
+int IndexManager::compareKey(const Attribute &attribute,
                              const void *key1, const RID &rid1,
                              const void *key2, const RID &rid2) const
 {
-    switch (type) {
+    switch (attribute.type) {
         case TypeInt: {
             int32_t i1 = *((const int32_t*) key1);
             int32_t i2 = *((const int32_t*) key2);
@@ -373,23 +415,12 @@ int IndexManager::compareKey(AttrType type,
     return compare(rid1, rid2);
 }
 
-int IndexManager::compareKey(AttrType type, const void *key1, const void *key2) const
+int IndexManager::compareKey(const Attribute &attribute, const void *key1, const void *key2) const
 {
     RID dummyRid;
     dummyRid.pageNum = 0;
     dummyRid.slotNum = 0;
-    return compareKey(type, key1, dummyRid, key2, dummyRid);
-}
-
-unsigned IndexManager::getKeyLength(Attribute attribute, const void *key) const
-{
-    switch (attribute.type) {
-        case TypeInt:
-        case TypeReal:
-            return attribute.length;
-        case TypeVarChar:
-            return *((const uint32_t*) key) + 4;
-    }
+    return compareKey(attribute, key1, dummyRid, key2, dummyRid);
 }
 
 PageNum IndexManager::getRoot(IXFileHandle &ixfileHandle) const

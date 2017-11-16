@@ -61,9 +61,8 @@ RC IndexManager::insertEntry(IXFileHandle &ixfileHandle, const Attribute &attrib
         unsigned keyLength = getKeyLength(attribute, newChildKey);
         memcpy(newRoot + NONLEAF_HEADER_SZ, &rootNum, NODE_PTR_SZ);
         memcpy(newRoot + NONLEAF_HEADER_SZ + NODE_PTR_SZ, newChildKey, keyLength);
-        *((PageNum *) (newRoot + NONLEAF_HEADER_SZ + NODE_PTR_SZ + keyLength)) = newChildRid.pageNum;
-        *((unsigned *) (newRoot + NONLEAF_HEADER_SZ + NODE_PTR_SZ + keyLength + PAGE_NUM_SZ)) = newChildRid.slotNum;
-        *((PageNum *) (newRoot + NONLEAF_HEADER_SZ + NODE_PTR_SZ + keyLength + RID_SZ)) = newChildNum;
+        writeRid(newRoot, NONLEAF_HEADER_SZ + NODE_PTR_SZ + keyLength, newChildRid);
+        memcpy(newRoot + NONLEAF_HEADER_SZ + NODE_PTR_SZ + keyLength + RID_SZ, &newChildNum, NODE_PTR_SZ);
         setFreeSpace(newRoot, PAGE_SIZE - NONLEAF_HEADER_SZ - 2 * NODE_PTR_SZ - keyLength - RID_SZ);
         ixfileHandle.appendPage(newRoot);
         setRoot(ixfileHandle, newRootNum);
@@ -160,29 +159,6 @@ IndexManager::initializeScanIterator(IXFileHandle &ixfileHandle, const Attribute
 
     return SUCCESS;
 }
-
-RC IndexManager::scanHelper(IXFileHandle &ixfileHandle, const Attribute &attribute, const void *lowKey,
-                            const void *highKey, bool lowKeyInclusive, bool highKeyInclusive,
-                            IX_ScanIterator &ix_ScanIterator, PageNum nodeNum) {
-    byte node[PAGE_SIZE];
-    ixfileHandle.readPage(nodeNum, node);
-
-    if (isLeaf(node)) { // leaf node
-        if (initializeScanIterator(ixfileHandle, attribute, lowKey, highKey, lowKeyInclusive, highKeyInclusive, nodeNum,
-                                   ix_ScanIterator) == FAIL) {
-            return FAIL;
-        }
-    } else {    // non-leaf node
-        unsigned childNumOffset = findChildNumOffset(node, attribute, lowKey, lowKeyInclusive);
-        PageNum childNum = *((PageNum *) (node + childNumOffset));
-        if (scanHelper(ixfileHandle, attribute, lowKey, highKey, lowKeyInclusive, highKeyInclusive,
-                       ix_ScanIterator, childNum) == FAIL) {
-            return FAIL;
-        }
-    }
-    return SUCCESS;
-}
-
 
 RC IndexManager::scan(IXFileHandle &ixfileHandle,
                       const Attribute &attribute,
@@ -324,8 +300,7 @@ RC IndexManager::insertEntry(IXFileHandle &ixfileHandle, PageNum nodeNum,
                 }
                 offset += keyLength + RID_SZ;
             }
-            unsigned numOfMove =
-                    PAGE_SIZE - freeBytes + entryLength - offset;  // number of bytes moved to the new leaf node
+            unsigned numOfMove = PAGE_SIZE - freeBytes + entryLength - offset;  // number of bytes moved to the new leaf node
             assert((numOfMove <= MAX_LEAF_SPACE) && "The new data entry is too large!");
             memcpy(newChildKey, node + offset, keyLength);
             loadRid(node, offset + keyLength, newChildRid);
@@ -371,9 +346,8 @@ RC IndexManager::insertEntry(IXFileHandle &ixfileHandle, PageNum nodeNum,
         unsigned keyOffset = childNumOffset + NODE_PTR_SZ;
         memmove(node + keyOffset + entryLength, node + keyOffset, PAGE_SIZE - keyOffset - freeBytes);
         memcpy(node + keyOffset, newChildKey, entryLength - NODE_PTR_SZ - RID_SZ);
-        *((PageNum *) (node + keyOffset + entryLength - NODE_PTR_SZ - SLOT_NUM_SZ - PAGE_NUM_SZ)) = newChildRid.pageNum;
-        *((unsigned *) (node + keyOffset + entryLength - NODE_PTR_SZ - SLOT_NUM_SZ)) = newChildRid.slotNum;
-        *((PageNum *) (node + keyOffset + entryLength - NODE_PTR_SZ)) = newChildNum;
+        writeRid(node, keyOffset + entryLength - NODE_PTR_SZ - RID_SZ, newChildRid);
+        memcpy(node + keyOffset + entryLength - NODE_PTR_SZ, &newChildNum, NODE_PTR_SZ);
 
         if (entryLength <= freeBytes) {
             setFreeSpace(node, freeBytes - entryLength);
@@ -398,8 +372,7 @@ RC IndexManager::insertEntry(IXFileHandle &ixfileHandle, PageNum nodeNum,
             newChildNum = ixfileHandle.getNumberOfPages();
             setFreeSpace(node, PAGE_SIZE - offset);
             offset += keyLength + RID_SZ;
-            memmove(node + PAGE_SIZE + NONLEAF_HEADER_SZ, node + offset,
-                    numOfMove);   // move entries to the new leaf page
+            memmove(node + PAGE_SIZE + NONLEAF_HEADER_SZ, node + offset, numOfMove);   // move entries to the new leaf page
             memset(node + PAGE_SIZE, 0, NONLEAF_HEADER_SZ);    // initialize non-leaf node header
             setFreeSpace(node + PAGE_SIZE, PAGE_SIZE - NONLEAF_HEADER_SZ - numOfMove);
 
@@ -433,9 +406,8 @@ RC IndexManager::insertDataEntry(byte *node, unsigned entryLength,
 
     // insert the new data entry
     memmove(node + offset + entryLength, node + offset, PAGE_SIZE - offset - freeBytes);
-    memcpy(node + offset, key, entryLength - PAGE_NUM_SZ - SLOT_NUM_SZ);
-    *((PageNum *) (node + offset + entryLength - PAGE_NUM_SZ - SLOT_NUM_SZ)) = rid.pageNum;
-    *((unsigned *) (node + offset + entryLength - SLOT_NUM_SZ)) = rid.slotNum;
+    memcpy(node + offset, key, entryLength - RID_SZ);
+    writeRid(node, offset + entryLength - RID_SZ, rid);
     return SUCCESS;
 }
 
@@ -528,6 +500,7 @@ IX_ScanIterator::IX_ScanIterator() {
 }
 
 IX_ScanIterator::~IX_ScanIterator() {
+    close();
 }
 
 RC IX_ScanIterator::getNextEntry(RID &rid, void *key) {

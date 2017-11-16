@@ -9,11 +9,12 @@
 #include "../rbf/pfm.h"
 using namespace std;
 
-// size of page space storing page and record info
-//const unsigned NUM_OF_FIELDS_SZ = 2;     // size of space storing the number of fields in a record
+typedef unsigned SlotNum;
+
+// size of page space that stores page or record metadata
 const unsigned FIELD_OFFSET_SZ = 2;      // size of space storing the offset of a field in a record
 const unsigned FREE_SPACE_SZ = 2;        // size of space storing the number of free bytes in a page
-const unsigned NUM_OF_SLOTS_SZ = sizeof(unsigned);      // size of space storing the number of slots in a page
+const unsigned NUM_OF_SLOTS_SZ = sizeof(SlotNum);      // size of space storing the number of slots in a page
 const unsigned SLOT_OFFSET_SZ = 2;       // size of space storing the offset of a record in a page
 const unsigned SLOT_LENGTH_SZ = 2;       // size of space storing the length of a record in a page
 const unsigned PAGE_NUM_SZ = sizeof(PageNum);
@@ -94,15 +95,16 @@ private:
     vector<unsigned> attrNums;
     unsigned conditionAttrNum;
     CompOp compOp;
+    // TODO: should dynamically allocate space for this pointer and store the value in the space
     const void *value;
 
     FileHandle *fileHandle = nullptr;   // the FileHandle object should be dynamically allocated
     byte page[PAGE_SIZE];
-    bool containData;
+    bool containData;   // whether the page array contains page data of the current pageNum
     PageNum numOfPages;
     PageNum pageNum;
     unsigned numOfSlots;
-    unsigned slotNum;
+    SlotNum slotNum;
 
     bool isHeaderPage(PageNum pageNum)
     {
@@ -225,13 +227,13 @@ private:
 
     void setNumOfSlots(byte *page, unsigned numOfSlots);
 
-    unsigned getRecordOffset(const byte *page, unsigned slotNum);
+    unsigned getRecordOffset(const byte *page, SlotNum slotNum);
 
-    void setRecordOffset(byte *page, unsigned slotNum, unsigned recordOffset);
+    void setRecordOffset(byte *page, SlotNum slotNum, unsigned recordOffset);
 
-    unsigned getRecordLength(const byte *page, unsigned slotNum);
+    unsigned getRecordLength(const byte *page, SlotNum slotNum);
 
-    void setRecordLength(byte *page, unsigned slotNum, unsigned recordLength);
+    void setRecordLength(byte *page, SlotNum slotNum, unsigned recordLength);
 
     unsigned getBytesOfNullFlags(unsigned numOfFields);
 
@@ -249,19 +251,19 @@ unsigned RecordBasedFileManager::getFreeBytes(const byte *page)
 }
 
 inline
-unsigned RecordBasedFileManager::getNumOfSlots(const byte *page)
+SlotNum RecordBasedFileManager::getNumOfSlots(const byte *page)
 {
-    return *((uint16_t*) (page + PAGE_SIZE - FREE_SPACE_SZ - NUM_OF_SLOTS_SZ));
+    return *((SlotNum*) (page + PAGE_SIZE - FREE_SPACE_SZ - NUM_OF_SLOTS_SZ));
 }
 
 inline
-void RecordBasedFileManager::setNumOfSlots(byte *page, unsigned numOfSlots)
+void RecordBasedFileManager::setNumOfSlots(byte *page, SlotNum numOfSlots)
 {
-    *((uint16_t*) (page + PAGE_SIZE - FREE_SPACE_SZ - NUM_OF_SLOTS_SZ)) = numOfSlots;
+    *((SlotNum*) (page + PAGE_SIZE - FREE_SPACE_SZ - NUM_OF_SLOTS_SZ)) = numOfSlots;
 }
 
 inline
-unsigned RecordBasedFileManager::getRecordOffset(const byte *page, unsigned slotNum)
+unsigned RecordBasedFileManager::getRecordOffset(const byte *page, SlotNum slotNum)
 {
     return *((uint16_t*) (page
                           + PAGE_SIZE
@@ -271,7 +273,7 @@ unsigned RecordBasedFileManager::getRecordOffset(const byte *page, unsigned slot
 }
 
 inline
-void RecordBasedFileManager::setRecordOffset(byte *page, unsigned slotNum, unsigned recordOffset)
+void RecordBasedFileManager::setRecordOffset(byte *page, SlotNum slotNum, unsigned recordOffset)
 {
     *((uint16_t*) (page
                    + PAGE_SIZE
@@ -282,7 +284,7 @@ void RecordBasedFileManager::setRecordOffset(byte *page, unsigned slotNum, unsig
 }
 
 inline
-unsigned RecordBasedFileManager::getRecordLength(const byte *page, unsigned slotNum)
+unsigned RecordBasedFileManager::getRecordLength(const byte *page, SlotNum slotNum)
 {
     return *((uint16_t*) (page
                           + PAGE_SIZE
@@ -292,7 +294,7 @@ unsigned RecordBasedFileManager::getRecordLength(const byte *page, unsigned slot
 }
 
 inline
-void RecordBasedFileManager::setRecordLength(byte *page, unsigned slotNum, unsigned recordLength)
+void RecordBasedFileManager::setRecordLength(byte *page, SlotNum slotNum, unsigned recordLength)
 {
     *((uint16_t*) (page
                    + PAGE_SIZE

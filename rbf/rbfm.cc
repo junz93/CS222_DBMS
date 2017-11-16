@@ -81,7 +81,7 @@ RC RecordBasedFileManager::insertRecord(FileHandle &fileHandle,
         freeBytes = getFreeBytes(page);
     }
 
-    unsigned numOfSlots = getNumOfSlots(page);    // number of slots (including slots that don't contain a valid record)
+    SlotNum numOfSlots = getNumOfSlots(page);    // number of slots (including slots that don't contain a valid record)
     unsigned recordOffset = PAGE_SIZE
                             - freeBytes
                             - FREE_SPACE_SZ
@@ -90,7 +90,7 @@ RC RecordBasedFileManager::insertRecord(FileHandle &fileHandle,
 
     // add offset and length info of the new record to slot directory
     rid.pageNum = pageNum;
-    unsigned slotNum = 0;   // slot number starts from 1 (not from 0)
+    SlotNum slotNum = 0;   // slot number starts from 1 (not from 0)
     for (; slotNum < numOfSlots; ++slotNum) {
         unsigned sLength = getRecordLength(page, slotNum);
         if (sLength == 0) {
@@ -138,7 +138,7 @@ RC RecordBasedFileManager::readRecord(FileHandle &fileHandle,
     unsigned recordOffset = getRecordOffset(page, rid.slotNum);
     if (recordOffset >= PAGE_SIZE) {    // this record has been moved to another page
         PageNum pageNum = *((PageNum*) (page + recordOffset - PAGE_SIZE));
-        unsigned slotNum = *((uint16_t*) (page + recordOffset - PAGE_SIZE + PAGE_NUM_SZ));
+        SlotNum slotNum = *((SlotNum*) (page + recordOffset - PAGE_SIZE + PAGE_NUM_SZ));
         fileHandle.readPage(pageNum, page);
         recordOffset = getRecordOffset(page, slotNum);
     }
@@ -193,7 +193,7 @@ RC RecordBasedFileManager::deleteRecord(FileHandle &fileHandle,
                                         const RID &rid)
 {
     PageNum pageNum = rid.pageNum;
-    unsigned slotNum = rid.slotNum;
+    SlotNum slotNum = rid.slotNum;
     byte page[PAGE_SIZE];
     fileHandle.readPage(pageNum, page);
 
@@ -206,7 +206,7 @@ RC RecordBasedFileManager::deleteRecord(FileHandle &fileHandle,
     if (recordOffset >= PAGE_SIZE) {    // this record has been moved to another page (not in the original page)
         recordOffset -= PAGE_SIZE;
         pageNum = *((PageNum*) (page + recordOffset));
-        slotNum = *((uint16_t*) (page + recordOffset + PAGE_NUM_SZ));
+        slotNum = *((SlotNum*) (page + recordOffset + PAGE_NUM_SZ));
 
         // delete the pointer in the original page
         setRecordLength(page, rid.slotNum, 0);
@@ -261,7 +261,7 @@ RC RecordBasedFileManager::updateRecord(FileHandle &fileHandle,
                                         const RID &rid)
 {
     PageNum pageNum = rid.pageNum;
-    unsigned slotNum = rid.slotNum;
+    SlotNum slotNum = rid.slotNum;
     byte page[PAGE_SIZE];
     fileHandle.readPage(pageNum, page);
 
@@ -287,12 +287,12 @@ RC RecordBasedFileManager::updateRecord(FileHandle &fileHandle,
     unsigned recordOffset = getRecordOffset(page, rid.slotNum);
 
     PageNum dataPageNum;
-    unsigned dataSlotNum;
+    SlotNum dataSlotNum;
     byte *dataPage = nullptr;     // the page that contains the actual record data
     if (recordOffset >= PAGE_SIZE) {    // this record has been moved to another page (not in the original page)
         recordOffset -= PAGE_SIZE;
         dataPageNum = *((PageNum*) (page + recordOffset));
-        dataSlotNum = *((uint16_t*) (page + recordOffset + PAGE_NUM_SZ));
+        dataSlotNum = *((SlotNum*) (page + recordOffset + PAGE_NUM_SZ));
         dataPage = new byte[PAGE_SIZE];
         fileHandle.readPage(dataPageNum, dataPage);
         recordOffset = getRecordOffset(dataPage, dataSlotNum);
@@ -366,7 +366,7 @@ RC RecordBasedFileManager::updateRecord(FileHandle &fileHandle,
         // update the pointer in the original page
         recordOffset = getRecordOffset(page, slotNum);
         *((PageNum*) (page + recordOffset - PAGE_SIZE)) = newRid.pageNum;
-        *((uint16_t*) (page + recordOffset - PAGE_SIZE + PAGE_NUM_SZ)) = newRid.slotNum;
+        *((SlotNum*) (page + recordOffset - PAGE_SIZE + PAGE_NUM_SZ)) = newRid.slotNum;
 
         fileHandle.writePage(pageNum, page);
     }
@@ -396,7 +396,7 @@ RC RecordBasedFileManager::readAttribute(FileHandle &fileHandle,
     }
 
     PageNum pageNum = rid.pageNum;
-    unsigned slotNum = rid.slotNum;
+    SlotNum slotNum = rid.slotNum;
     byte page[PAGE_SIZE];
     fileHandle.readPage(pageNum, page);
     unsigned recordLength = getRecordLength(page, slotNum);
@@ -407,7 +407,7 @@ RC RecordBasedFileManager::readAttribute(FileHandle &fileHandle,
     if (recordOffset >= PAGE_SIZE) {
         recordOffset -= PAGE_SIZE;
         pageNum = *((PageNum*) (page + recordOffset));
-        slotNum = *((uint16_t*) (page + recordOffset + PAGE_NUM_SZ));
+        slotNum = *((SlotNum*) (page + recordOffset + PAGE_NUM_SZ));
         fileHandle.readPage(pageNum, page);
         recordOffset = getRecordOffset(page, slotNum);
     }

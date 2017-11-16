@@ -64,10 +64,6 @@ private:
     static IndexManager *_index_manager;
     PagedFileManager *pfm = PagedFileManager::instance();
 
-    RC scanHelper(IXFileHandle &ixfileHandle, const Attribute &attribute, const void *lowKey,
-                  const void *highKey, bool lowKeyInclusive, bool highKeyInclusive,
-                  IX_ScanIterator &ix_ScanIterator, PageNum nodeNum);
-
     RC initializeScanIterator(IXFileHandle &ixfileHandle, const Attribute &attribute, const void *lowKey,
                               const void *highKey, bool lowKeyInclusive, bool highKeyInclusive, PageNum nodeNum,
                               IX_ScanIterator &ix_ScanIterator);
@@ -108,6 +104,9 @@ private:
     // read RID from the given node and store it in rid argument
     void loadRid(const byte *node, unsigned offset, RID &rid) const;
 
+    // write rid to the given position of the given node
+    void writeRid(byte *node, unsigned offset, const RID &rid);
+
     PageNum getRoot(IXFileHandle &ixfileHandle) const;
 
     RC setRoot(IXFileHandle &ixfileHandle, PageNum rootNum);
@@ -147,7 +146,13 @@ unsigned IndexManager::getKeyLength(Attribute attribute, const void *key) const 
 inline
 void IndexManager::loadRid(const byte *node, unsigned offset, RID &rid) const {
     rid.pageNum = *((PageNum *) (node + offset));
-    rid.slotNum = *((unsigned *) (node + offset + PAGE_NUM_SZ));
+    rid.slotNum = *((SlotNum *) (node + offset + PAGE_NUM_SZ));
+}
+
+inline
+void IndexManager::writeRid(byte *node, unsigned offset, const RID &rid) {
+    *((PageNum *) (node + offset)) = rid.pageNum;
+    *((SlotNum *) (node + offset + PAGE_NUM_SZ)) = rid.slotNum;
 }
 
 inline

@@ -13,7 +13,7 @@ using namespace std;
 //const unsigned NUM_OF_FIELDS_SZ = 2;     // size of space storing the number of fields in a record
 const unsigned FIELD_OFFSET_SZ = 2;      // size of space storing the offset of a field in a record
 const unsigned FREE_SPACE_SZ = 2;        // size of space storing the number of free bytes in a page
-const unsigned NUM_OF_SLOTS_SZ = 2;      // size of space storing the number of slots in a page
+const unsigned NUM_OF_SLOTS_SZ = sizeof(unsigned);      // size of space storing the number of slots in a page
 const unsigned SLOT_OFFSET_SZ = 2;       // size of space storing the offset of a record in a page
 const unsigned SLOT_LENGTH_SZ = 2;       // size of space storing the length of a record in a page
 const unsigned PAGE_NUM_SZ = sizeof(PageNum);

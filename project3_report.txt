@@ -1,38 +1,48 @@
 1. Basic information
-Team number (e.g., 01) : 
-#1 Student ID : 
-#1 Student Name : 
-#2 Student ID : 
-#2 Student Name : 
-OS (bit) :
-gcc version :
+Team number (e.g., 01) : 13
+#1 Student ID : 56323792
+#1 Student Name : Jun Zhang
+#2 Student ID : 20282757
+#2 Student Name : Yuhan Zheng
+OS (bit) : Ubuntu 16.04 (64-bit)
+gcc version : 5.4.0
 
 
 2. Meta-data page in an index file
-- Show your meta-data page of an index design if you have any. 
+There is a header page for each index file which stores the read, write, append counter, and the page number of the
+root page.
 
 
 3. Index Entry Format
-- Show your index entry design (structure). 
+Each index entry consists of two parts: key and child pointer.
+
+Key: Since we use composite key to handle data entries with duplicate key, the key in an index entry is actually
+(key, rid) pair.
+
+Child pointer: the page number of the child page which contains keys that are greater than or equal to the key in this
+index entry.
 
 
 4. Page Format
-- Show your internal-page (non-leaf node) design.
+Internal Page:
+Each internal page consists of two parts: page header and index entries.
+Page header: empty space (2 bytes), leaf flag (1 byte) (leaf flag is 0 for internal page)
 
-- Show your leaf-page (leaf node) design.
-
+Leaf Page:
+Each leaf page consists of two parts: page header and data entries.
+Page header: empty space (2 bytes), flags (1 byte), previous page pointer (4 bytes), next page pointer (4 bytes)
+Flag format: Last 3 bits of the flag byte are used to denote 1) isLeaf (1 for leaf page), 2) previous page status
+(1 if the previous page exists), and 3) next page status (1 if the next page exists)
 
 5. Implementation Detail
 - Have you added your own source file (.cc or .h)?
+No.
 
-- Have you implemented non-lazy deletion? Choose Yes or No: 
+- Have you implemented non-lazy deletion? Choose Yes or No:
+No.
 
 - Have you implemented duplicated key handling that can span multiple pages? Choose Yes or No: 
   If yes, please explain briefly how you have implemented this feature.
-
-- Other implementation details:
-
-
-6. Other (optional)
-- Freely use this section to tell us about things that are related to the project 3, but not related to the other sections (optional)
-
+Yes.
+Instead of using the key itself, we build the B+ tree for composite key which consists of key and rid. Since the
+composite key is a unique key, we can handle entries with duplicate key that span multiple pages.

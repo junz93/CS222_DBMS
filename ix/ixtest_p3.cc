@@ -94,8 +94,8 @@ int main(){
     attrShortEmpName.length = 20;
     attrShortEmpName.name = "ShortEmpName";
     attrShortEmpName.type = TypeVarChar;
-    
-    remove("private_empname_shortidx");
+
+    indexManager->destroyFile("private_empname_shortidx");
 
     int rcmain = testCase_p3(indexEmpNameFileName1, attrShortEmpName);
 

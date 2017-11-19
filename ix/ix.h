@@ -242,13 +242,6 @@ class IXFileHandle {
     friend class IndexManager;
 
 public:
-
-    // TODO: these variables are useless, since the FileHandle object contains these counters
-    // variables to keep counter for each operation
-    unsigned ixReadPageCounter = 0;
-    unsigned ixWritePageCounter = 0;
-    unsigned ixAppendPageCounter = 0;
-
     // Constructor
     IXFileHandle();
 

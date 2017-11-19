@@ -293,11 +293,15 @@ RC IndexManager::insertEntry(IXFileHandle &ixfileHandle, PageNum nodeNum,
         } else {    // split the current leaf node
             unsigned offset = LEAF_HEADER_SZ;
             unsigned keyLength;
+            unsigned totalLength = PAGE_SIZE - LEAF_HEADER_SZ - freeBytes + entryLength;
             while (offset < PAGE_SIZE - freeBytes + entryLength) {
                 keyLength = getKeyLength(attribute, node + offset);
-                if (offset - LEAF_HEADER_SZ + keyLength + RID_SZ > MAX_LEAF_SPACE / 2) {
+                if (offset - LEAF_HEADER_SZ + keyLength + RID_SZ > totalLength / 2) {
                     break;
                 }
+//                if (offset - LEAF_HEADER_SZ + keyLength + RID_SZ > MAX_LEAF_SPACE / 2) {
+//                    break;
+//                }
                 offset += keyLength + RID_SZ;
             }
             unsigned numOfMove = PAGE_SIZE - freeBytes + entryLength - offset;  // number of bytes moved to the new leaf node
@@ -357,11 +361,15 @@ RC IndexManager::insertEntry(IXFileHandle &ixfileHandle, PageNum nodeNum,
         } else {    // split the current non-leaf node
             unsigned offset = NONLEAF_HEADER_SZ + NODE_PTR_SZ;
             unsigned keyLength;
+            unsigned totalLength = PAGE_SIZE - NONLEAF_HEADER_SZ - freeBytes + entryLength;
             while (offset < PAGE_SIZE - freeBytes + entryLength) {
                 keyLength = getKeyLength(attribute, node + offset);
-                if (offset + keyLength + RID_SZ + NODE_PTR_SZ - NONLEAF_HEADER_SZ > MAX_NONLEAF_SPACE / 2) {
+                if (offset + keyLength + RID_SZ + NODE_PTR_SZ - NONLEAF_HEADER_SZ > totalLength / 2) {
                     break;
                 }
+//                if (offset + keyLength + RID_SZ + NODE_PTR_SZ - NONLEAF_HEADER_SZ > MAX_NONLEAF_SPACE / 2) {
+//                    break;
+//                }
                 offset += keyLength + RID_SZ + NODE_PTR_SZ;
             }
             unsigned numOfMove = PAGE_SIZE - freeBytes + entryLength -

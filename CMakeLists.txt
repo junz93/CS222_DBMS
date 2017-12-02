@@ -11,9 +11,6 @@ target_link_libraries(RM RBF IX)
 add_library(QE qe/qe.cc)
 target_link_libraries(QE RM)
 
-add_executable(my_test rm/my_test.cpp)
-target_link_libraries(my_test RM)
-
 add_executable(cs222_rbftest01 rbf/rbftest1.cc)
 target_link_libraries(cs222_rbftest01 RBF)
 add_executable(cs222_rbftest02 rbf/rbftest2.cc)

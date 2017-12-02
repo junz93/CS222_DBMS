@@ -5,23 +5,31 @@
 #include <vector>
 #include <unordered_map>
 #include "../rbf/rbfm.h"
+#include "../ix/ix.h"
+
 using namespace std;
 
 #define RM_EOF (-1)  // end of a scan operator
 
 class RelationManager;
 
+struct Index {
+    string indexName;
+    string attributeName;
+    string tableName;
+};
+
 // RM_ScanIterator is an iterator to go through tuples
 class RM_ScanIterator {
     friend class RelationManager;
+
 public:
     RM_ScanIterator() {}
 
     ~RM_ScanIterator() {}
 
     // "data" follows the same format as RelationManager::insertTuple()
-    RC getNextTuple(RID &rid, void *data)
-    {
+    RC getNextTuple(RID &rid, void *data) {
         return (rbfm_scanIterator.getNextRecord(rid, data) == RBFM_EOF) ? RM_EOF : SUCCESS;
     }
 
@@ -33,13 +41,19 @@ private:
 
 // RM_IndexScanIterator is an iterator to go through index entries
 class RM_IndexScanIterator {
+    friend class RelationManager;
+
+private:
+    IX_ScanIterator ix_scanIterator;
 public:
-    RM_IndexScanIterator() {}  	// Constructor
-    ~RM_IndexScanIterator() {} 	// Destructor
+    RM_IndexScanIterator() {}    // Constructor
+    ~RM_IndexScanIterator() {}    // Destructor
 
     // "key" follows the same format as in IndexManager::insertEntry()
-    RC getNextEntry(RID &rid, void *key) { return RM_EOF; }  	// Get next matching entry
-    RC close() { return -1; }             			// Terminate index scan
+    RC getNextEntry(RID &rid, void *key) {
+        return ix_scanIterator.getNextEntry(rid, key);
+    }    // Get next matching entry
+    RC close() { return ix_scanIterator.close(); }                        // Terminate index scan
 };
 
 // Relation Manager
@@ -108,6 +122,7 @@ private:
     static RelationManager *_rm;
     const string TABLES_TABLE = "Tables";
     const string COLUMNS_TABLE = "Columns";
+    const string INDICES_TABLE = "Indices";
     const string TABLE_ID = "table-id";
     const string TABLE_NAME = "table-name";
     const string FILE_NAME = "file-name";
@@ -116,17 +131,23 @@ private:
     const string COLUMN_TYPE = "column-type";
     const string COLUMN_LENGTH = "column-length";
     const string COLUMN_POSITION = "column-position";
+    const string INDEX_NAME = "index-name";
+    const string ATTRIBUTE_NAME = "attribute-name";
     const int TABLES_ATTR_NUM = 4;
     const int COLUMNS_ATTR_NUM = 6;
+    const int INDICES_ATTR_NUM = 4;
     const int TABLES_ID = 1;
     const int COLUMNS_ID = 2;
+    const int INDICES_ID = 3;
 
     const string CATALOG_INFO = "catalog_information";
 
     RecordBasedFileManager *rbfm = RecordBasedFileManager::instance();
+    IndexManager *ix = IndexManager::instance();
 
     /** private functions called by createCatalog(...) **/
     RC insertCatalogTuple(const string &tableName, const void *data, RID &rid);
+
     void initializeTablesTable(); // insert essential tuples to "Tables" table as an initialization of catalog
     void initializeColumnsTable(); // insert essential tuples to "Columns" table as an initialization of catalog
 
@@ -138,13 +159,19 @@ private:
     /** private functions for reading and writing metadata **/
     RC prepareTableIdAndTablesRid(const string tableName, int &tableId, RID &rid);
 
+    RC prepareIndexRid(const string indexName, RID &rid);
+
     RC preparePositionAttributeMap(int tableId, unordered_map<int, Attribute> &positionAttributeMap);
 
     RC deleteTargetTableTuplesInColumnsTable(int tableId);
 
+    RC deleteRelatedIndicesTableTuples(const string tableName);
+
     RC deleteCatalogTuple(const string &tableName, const RID &rid);
-    
+
     /** private functions for general use **/
+    Attribute getAttribute(const string attributeName, const int tableId);
+
     void updateLastTableId(uint32_t tableId);
 
     uint32_t getLastTableId();
@@ -154,6 +181,19 @@ private:
     bool isSystemTuple(const string tableName, const RID rid);
 
     RC prepareRecordDescriptor(const string tableName, vector<Attribute> &recordDescriptor);
+
+    RC prepareRelatedIndices(const string tableName, vector<Index> &relatedIndices);
+
+    RC insertEntriesToRelatedIndices(const vector<Index> relatedIndices, const vector<Attribute> recordDescriptor,
+                                     const void *data);
+
+    RC deleteEntriesToRelatedIndices(const vector<Index> relatedIndices, const vector<Attribute> recordDescriptor,
+                                     const void *data);
+
+    RC deleteRelatedIndexFiles(const vector<Index> relatedIndices);
+
+    RC prepareKeyAndAttribute(const vector<Attribute> recordDescriptor, const void *data, const string attributeName,
+                              void *key, Attribute &attribute);
 
 };
 

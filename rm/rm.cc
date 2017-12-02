@@ -1,10 +1,10 @@
 #include "rm.h"
 #include "util.h"
 
-RelationManager* RelationManager::_rm = nullptr;
+RelationManager *RelationManager::_rm = nullptr;
 
-RelationManager* RelationManager::instance() {
-    if(!_rm)
+RelationManager *RelationManager::instance() {
+    if (!_rm)
         _rm = new RelationManager();
 
     return _rm;
@@ -26,6 +26,10 @@ RC RelationManager::createCatalog() {
         rbfm->destroyFile(COLUMNS_TABLE);
         return FAIL;
     }
+    if (rbfm->createFile(INDICES_TABLE) == FAIL) {
+        rbfm->destroyFile(INDICES_TABLE);
+        return FAIL;
+    }
 
     // initialize catalog tables
     initializeTablesTable();
@@ -33,14 +37,14 @@ RC RelationManager::createCatalog() {
 
     // create catalog information file and store last table id
     ofstream file(CATALOG_INFO, fstream::out | fstream::binary);
-    updateLastTableId(2);
+    updateLastTableId(INDICES_ID);
 
     return SUCCESS;
 }
 
 RC RelationManager::deleteCatalog() {
     if (rbfm->destroyFile(TABLES_TABLE) == FAIL || rbfm->destroyFile(COLUMNS_TABLE) == FAIL
-        || rbfm->destroyFile(CATALOG_INFO) == FAIL) {
+        || rbfm->destroyFile(CATALOG_INFO) == FAIL || rbfm->destroyFile(INDICES_TABLE) == FAIL) {
         return FAIL;
     }
     return SUCCESS;
@@ -77,18 +81,22 @@ RC RelationManager::createTable(const string &tableName, const vector<Attribute>
 RC RelationManager::deleteTable(const string &tableName) {
     int tableId;
     RID rid;
+    vector<Index> relatedIndices;
 
     if (isSystemTable(tableName)) {
         return FAIL;
     }
 
+    prepareRelatedIndices(tableName, relatedIndices);
     // delete schema in Catalog
     if (prepareTableIdAndTablesRid(tableName, tableId, rid) == FAIL) { return FAIL; }
-    if (deleteCatalogTuple(TABLES_TABLE, rid) == FAIL) {return FAIL;}
-    if (deleteTargetTableTuplesInColumnsTable(tableId) == FAIL) {return FAIL;}
+    if (deleteCatalogTuple(TABLES_TABLE, rid) == FAIL) { return FAIL; }
+    if (deleteTargetTableTuplesInColumnsTable(tableId) == FAIL) { return FAIL; }
+    if (deleteRelatedIndicesTableTuples(tableName) == FAIL) { return FAIL; }
     // delete table file
     if (rbfm->destroyFile(tableName) == FAIL) { return FAIL; }
-
+    // delete index files
+    if (deleteRelatedIndexFiles(relatedIndices) == FAIL) { return FAIL; }
 
     return SUCCESS;
 }
@@ -118,20 +126,20 @@ RC RelationManager::getAttributes(const string &tableName, vector<Attribute> &at
 RC RelationManager::insertTuple(const string &tableName, const void *data, RID &rid) {
     FileHandle fileHandle;
     vector<Attribute> recordDescriptor;
+    vector<Index> relatedIndices;
 
     if (isSystemTable(tableName)) {
         return FAIL;
     }
-
     if (rbfm->openFile(tableName, fileHandle) == FAIL) {
         return FAIL;
     }
-
     prepareRecordDescriptor(tableName, recordDescriptor);
-
     if (rbfm->insertRecord(fileHandle, recordDescriptor, data, rid) == FAIL) {
         return FAIL;
     }
+    prepareRelatedIndices(tableName, relatedIndices);
+    insertEntriesToRelatedIndices(relatedIndices, recordDescriptor, data);
 
     rbfm->closeFile(fileHandle);
 
@@ -141,6 +149,8 @@ RC RelationManager::insertTuple(const string &tableName, const void *data, RID &
 RC RelationManager::deleteTuple(const string &tableName, const RID &rid) {
     FileHandle fileHandle;
     vector<Attribute> recordDescriptor;
+    vector<Index> relatedIndices;
+    void *data = malloc(PAGE_SIZE);
 
     if (isSystemTable(tableName) || isSystemTuple(tableName, rid)) {
         return FAIL;
@@ -149,10 +159,16 @@ RC RelationManager::deleteTuple(const string &tableName, const RID &rid) {
         return FAIL;
     }
     prepareRecordDescriptor(tableName, recordDescriptor);
+    if (rbfm->readRecord(fileHandle, recordDescriptor, rid, data) == FAIL) {
+        return FAIL;
+    }
     if (rbfm->deleteRecord(fileHandle, recordDescriptor, rid) == FAIL) {
         return FAIL;
     }
+    prepareRelatedIndices(tableName, relatedIndices);
+    deleteEntriesToRelatedIndices(relatedIndices, recordDescriptor, data);
     rbfm->closeFile(fileHandle);
+    free(data);
 
     return SUCCESS;
 }
@@ -160,6 +176,8 @@ RC RelationManager::deleteTuple(const string &tableName, const RID &rid) {
 RC RelationManager::updateTuple(const string &tableName, const void *data, const RID &rid) {
     FileHandle fileHandle;
     vector<Attribute> recordDescriptor;
+    vector<Index> relatedIndices;
+    void *oldData = malloc(PAGE_SIZE);
 
     if (isSystemTable(tableName) || isSystemTuple(tableName, rid)) {
         return FAIL;
@@ -169,10 +187,17 @@ RC RelationManager::updateTuple(const string &tableName, const void *data, const
         return FAIL;
     }
     prepareRecordDescriptor(tableName, recordDescriptor);
+    if (rbfm->readRecord(fileHandle, recordDescriptor, rid, oldData) == FAIL) {
+        return FAIL;
+    }
     if (rbfm->updateRecord(fileHandle, recordDescriptor, data, rid) == FAIL) {
         return FAIL;
     }
+    prepareRelatedIndices(tableName, relatedIndices);
+    deleteEntriesToRelatedIndices(relatedIndices, recordDescriptor, oldData);
+    insertEntriesToRelatedIndices(relatedIndices, recordDescriptor, data);
     rbfm->closeFile(fileHandle);
+    free(oldData);
 
     return SUCCESS;
 }
@@ -227,11 +252,34 @@ RC RelationManager::scan(const string &tableName,
 }
 
 RC RelationManager::createIndex(const string &tableName, const string &attributeName) {
-    return -1;
+    RID rid;
+    void *tuple = malloc(PAGE_SIZE);
+    string indexName = tableName + "：" + attributeName;
+
+    if (ix->createFile(indexName) == FAIL) {
+        return FAIL;
+    }
+    prepareTupleForIndices(INDICES_ATTR_NUM, indexName, attributeName, tableName, true, tuple);
+    if (insertCatalogTuple(INDICES_TABLE, tuple, rid) == FAIL) {
+        return FAIL;
+    }
+    free(tuple);
+
+    return SUCCESS;
 }
 
 RC RelationManager::destroyIndex(const string &tableName, const string &attributeName) {
-    return -1;
+    RID rid;
+    string indexName = tableName + "：" + attributeName;
+
+    if (ix->destroyFile(indexName) == FAIL) {
+        return FAIL;
+    }
+    if (prepareIndexRid(indexName, rid) == FAIL || deleteCatalogTuple(INDICES_TABLE, rid) == FAIL) {
+        return FAIL;
+    }
+
+    return SUCCESS;
 }
 
 RC RelationManager::indexScan(const string &tableName,
@@ -241,7 +289,30 @@ RC RelationManager::indexScan(const string &tableName,
                               bool lowKeyInclusive,
                               bool highKeyInclusive,
                               RM_IndexScanIterator &rm_IndexScanIterator) {
-    return -1;
+    IXFileHandle ixfileHandle;
+    IX_ScanIterator ix_ScanIterator;
+    int tableId;
+    RID rid;
+    Attribute attribute;
+    string indexName = tableName + "：" + attributeName;
+
+    if (ix->openFile(indexName, ixfileHandle) == FAIL) {
+        return FAIL;
+    }
+    if (prepareTableIdAndTablesRid(tableName, tableId, rid) == FAIL) {
+        return FAIL;
+    }
+    attribute = getAttribute(attributeName, tableId);
+    if (attribute.length == 0) {
+        return FAIL;
+    }
+    if (ix->scan(ixfileHandle, attribute, lowKey, highKey, lowKeyInclusive, highKeyInclusive, ix_ScanIterator)
+        == FAIL) {
+        return FAIL;
+    }
+    rm_IndexScanIterator.ix_scanIterator = ix_ScanIterator;
+
+    return SUCCESS;
 }
 
 // Extra credit work
@@ -268,6 +339,8 @@ RC RelationManager::insertCatalogTuple(const string &tableName, const void *data
     if (rbfm->insertRecord(fileHandle, recordDescriptor, data, rid) == FAIL) {
         return FAIL;
     }
+    // TODO: to be deleted
+    rbfm->printRecord(recordDescriptor, data);
 
     rbfm->closeFile(fileHandle);
 
@@ -282,6 +355,9 @@ void RelationManager::initializeTablesTable() {
     insertCatalogTuple(TABLES_TABLE, tuple, rid);
 
     prepareTupleForTables(TABLES_ATTR_NUM, COLUMNS_ID, COLUMNS_TABLE, true, tuple);
+    insertCatalogTuple(TABLES_TABLE, tuple, rid);
+
+    prepareTupleForTables(TABLES_ATTR_NUM, INDICES_ID, INDICES_TABLE, true, tuple);
     insertCatalogTuple(TABLES_TABLE, tuple, rid);
 
     free(tuple);
@@ -311,6 +387,15 @@ void RelationManager::initializeColumnsTable() {
     prepareTupleForColumns(COLUMNS_ATTR_NUM, COLUMNS_ID, COLUMN_POSITION, TypeInt, 4, 5, true, tuple);
     insertCatalogTuple(COLUMNS_TABLE, tuple, rid);
     prepareTupleForColumns(COLUMNS_ATTR_NUM, COLUMNS_ID, SYSTEM_FLAG, TypeInt, 4, 6, true, tuple);
+    insertCatalogTuple(COLUMNS_TABLE, tuple, rid);
+
+    prepareTupleForColumns(COLUMNS_ATTR_NUM, INDICES_ID, INDEX_NAME, TypeVarChar, 50, 1, true, tuple);
+    insertCatalogTuple(COLUMNS_TABLE, tuple, rid);
+    prepareTupleForColumns(COLUMNS_ATTR_NUM, INDICES_ID, ATTRIBUTE_NAME, TypeVarChar, 50, 2, true, tuple);
+    insertCatalogTuple(COLUMNS_TABLE, tuple, rid);
+    prepareTupleForColumns(COLUMNS_ATTR_NUM, INDICES_ID, TABLE_NAME, TypeVarChar, 50, 3, true, tuple);
+    insertCatalogTuple(COLUMNS_TABLE, tuple, rid);
+    prepareTupleForColumns(COLUMNS_ATTR_NUM, INDICES_ID, SYSTEM_FLAG, TypeInt, 4, 4, true, tuple);
     insertCatalogTuple(COLUMNS_TABLE, tuple, rid);
 
     free(tuple);
@@ -379,7 +464,7 @@ void RelationManager::prepareRecordDescriptorForColumnsTable(vector<Attribute> &
 /** private functions for reading and writing metadata **/
 RC RelationManager::prepareTableIdAndTablesRid(const string tableName, int &tableId, RID &rid) {
     RM_ScanIterator rm_scanIterator;
-    void *returnedData = malloc(200);
+    void *returnedData = malloc(PAGE_SIZE);
     void *scanValueOfTableName = malloc(tableName.size() + 4);
     vector<string> attributeNames;
     attributeNames.push_back(TABLE_ID);
@@ -396,10 +481,28 @@ RC RelationManager::prepareTableIdAndTablesRid(const string tableName, int &tabl
     return SUCCESS;
 }
 
+RC RelationManager::prepareIndexRid(const string indexName, RID &rid) {
+    RM_ScanIterator rm_scanIterator;
+    void *returnedData = malloc(PAGE_SIZE);
+    void *scanValueOfIndexName = malloc(indexName.size() + 4);
+    vector<string> attributeNames;
+    attributeNames.push_back(INDEX_NAME);
+
+    prepareScanValue(indexName, scanValueOfIndexName);
+    if (scan(INDICES_TABLE, INDEX_NAME, EQ_OP, scanValueOfIndexName, attributeNames, rm_scanIterator) == FAIL) {
+        return FAIL;
+    }
+    if (rm_scanIterator.getNextTuple(rid, returnedData) == RM_EOF) { return FAIL; }
+    free(scanValueOfIndexName);
+    free(returnedData);
+    rm_scanIterator.close();
+    return SUCCESS;
+}
+
 RC RelationManager::preparePositionAttributeMap(int tableId, unordered_map<int, Attribute> &positionAttributeMap) {
     RID rid;
     RM_ScanIterator rm_scanIterator;
-    void *returnedData = malloc(200);
+    void *returnedData = malloc(PAGE_SIZE);
     vector<string> attributeNames;
     attributeNames.push_back(COLUMN_NAME);
     attributeNames.push_back(COLUMN_TYPE);
@@ -457,6 +560,26 @@ RC RelationManager::deleteTargetTableTuplesInColumnsTable(int tableId) {
     return SUCCESS;
 }
 
+RC RelationManager::deleteRelatedIndicesTableTuples(const string tableName) {
+    RID rid;
+    RM_ScanIterator rm_scanIterator;
+    void *returnedData = malloc(200);
+    void *scanValueOfTableName = malloc(tableName.size() + 4);
+    vector<string> attributeNames;
+    attributeNames.push_back(INDEX_NAME);
+
+    prepareScanValue(tableName, scanValueOfTableName);
+    if (scan(INDICES_TABLE, TABLE_NAME, EQ_OP, scanValueOfTableName, attributeNames, rm_scanIterator) == FAIL) {
+        return FAIL;
+    }
+    while (rm_scanIterator.getNextTuple(rid, returnedData) != RM_EOF) {
+        deleteCatalogTuple(INDICES_TABLE, rid);
+    }
+    free(returnedData);
+    rm_scanIterator.close();
+    return SUCCESS;
+}
+
 RC RelationManager::deleteCatalogTuple(const string &tableName, const RID &rid) {
     FileHandle fileHandle;
     vector<Attribute> recordDescriptor;
@@ -477,6 +600,41 @@ RC RelationManager::deleteCatalogTuple(const string &tableName, const RID &rid) 
 }
 
 /** private functions for general use **/
+Attribute RelationManager::getAttribute(const string attributeName, const int tableId) {
+    Attribute attribute;
+    attribute.length = 0;
+    RID rid;
+    RM_ScanIterator rm_scanIterator;
+    void *returnedData = malloc(PAGE_SIZE);
+    vector<string> attributeNames;
+    attributeNames.push_back(COLUMN_NAME);
+    attributeNames.push_back(COLUMN_TYPE);
+    attributeNames.push_back(COLUMN_LENGTH);
+    int offset = getByteOfNullsIndicator(attributeNames.size());
+
+    if (scan(COLUMNS_TABLE, TABLE_ID, EQ_OP, &tableId, attributeNames, rm_scanIterator) == FAIL) {
+        return attribute;
+    }
+    while (rm_scanIterator.getNextTuple(rid, returnedData) != RM_EOF) {
+
+        int nameLength = *((int *) ((char *) returnedData + offset));
+        offset += sizeof(int);
+        string currentAttributeName((char *) returnedData + offset, nameLength);
+        if (currentAttributeName == attributeName) {
+            attribute.name = attributeName;
+            offset += nameLength;
+            attribute.type = *((AttrType *) ((char *) returnedData + offset));
+            offset += sizeof(AttrType); //
+            attribute.length = *((AttrLength *) ((char *) returnedData + offset));
+            offset += sizeof(AttrLength);
+            break;
+        }
+    }
+    free(returnedData);
+    rm_scanIterator.close();
+    return attribute;
+}
+
 void RelationManager::updateLastTableId(uint32_t tableId) {
     fstream file;
     file.open(CATALOG_INFO);
@@ -503,7 +661,7 @@ bool RelationManager::isSystemTuple(const string tableName, const RID rid) {
     }
     void *returnedData = malloc(PAGE_SIZE);
     readAttribute(tableName, rid, SYSTEM_FLAG, returnedData);
-    int systemFlag = *((int *) ((char *)returnedData + getByteOfNullsIndicator(1)));
+    int systemFlag = *((int *) ((char *) returnedData + getByteOfNullsIndicator(1)));
     free(returnedData);
     return systemFlag == 1;
 }
@@ -515,6 +673,129 @@ RC RelationManager::prepareRecordDescriptor(const string tableName, vector<Attri
         prepareRecordDescriptorForTablesTable(recordDescriptor);
     } else {
         if (getAttributes(tableName, recordDescriptor) == FAIL) { return FAIL; }
+    }
+    return SUCCESS;
+}
+
+RC RelationManager::prepareRelatedIndices(const string tableName, vector<Index> &relatedIndices) {
+    RID rid;
+    RM_ScanIterator rm_scanIterator;
+    void *returnedData = malloc(PAGE_SIZE);
+    void *scanValueOfTableName = malloc(tableName.size() + 4);
+    vector<string> attributeNames;
+    attributeNames.push_back(ATTRIBUTE_NAME);
+
+    prepareScanValue(tableName, scanValueOfTableName);
+    if (scan(INDICES_TABLE, TABLE_NAME, EQ_OP, scanValueOfTableName, attributeNames, rm_scanIterator) == FAIL) {
+        return FAIL;
+    }
+    while (rm_scanIterator.getNextTuple(rid, returnedData) != RM_EOF) {
+        Index currentIndex;
+        int offset = getByteOfNullsIndicator(attributeNames.size());
+        int nameLength = *((int *) ((char *) returnedData + offset));
+        offset += sizeof(int);
+        string currentAttributeName((char *) returnedData + offset, nameLength);
+        currentIndex.attributeName = currentAttributeName;
+        currentIndex.tableName = tableName;
+        currentIndex.indexName = tableName + "：" + currentAttributeName;
+        relatedIndices.push_back(currentIndex);
+    }
+    free(scanValueOfTableName);
+    free(returnedData);
+    rm_scanIterator.close();
+
+    return SUCCESS;
+}
+
+RC RelationManager::insertEntriesToRelatedIndices(const vector<Index> relatedIndices,
+                                                  const vector<Attribute> recordDescriptor, const void *data) {
+    IXFileHandle ixFileHandle;
+    RID rid;
+    void *key = malloc(PAGE_SIZE);
+    Attribute attribute;
+
+    for (Index relatedIndex : relatedIndices) {
+
+        if (prepareKeyAndAttribute(recordDescriptor, data, relatedIndex.attributeName, key, attribute) == FAIL) {
+            return FAIL;
+        }
+        if (ix->openFile(relatedIndex.indexName, ixFileHandle) == FAIL) {
+            return FAIL;
+        }
+        if (ix->insertEntry(ixFileHandle, attribute, key, rid) == FAIL) {
+            return FAIL;
+        }
+    }
+
+    free(key);
+
+    return SUCCESS;
+}
+
+RC RelationManager::deleteEntriesToRelatedIndices(const vector<Index> relatedIndices,
+                                                  const vector<Attribute> recordDescriptor, const void *data) {
+    IXFileHandle ixFileHandle;
+    RID rid;
+    void *key = malloc(PAGE_SIZE);
+    Attribute attribute;
+
+    for (Index relatedIndex : relatedIndices) {
+
+        if (prepareKeyAndAttribute(recordDescriptor, data, relatedIndex.attributeName, key, attribute) == FAIL) {
+            return FAIL;
+        }
+        if (ix->openFile(relatedIndex.indexName, ixFileHandle) == FAIL) {
+            return FAIL;
+        }
+        if (ix->deleteEntry(ixFileHandle, attribute, key, rid) == FAIL) {
+            return FAIL;
+        }
+    }
+
+    free(key);
+
+    return SUCCESS;
+}
+
+RC RelationManager::deleteRelatedIndexFiles(const vector<Index> relatedIndices) {
+    for (Index index : relatedIndices) {
+        if (ix->destroyFile(index.indexName) == FAIL) {
+            return FAIL;
+        }
+    }
+    return SUCCESS;
+}
+
+RC RelationManager::prepareKeyAndAttribute(const vector<Attribute> recordDescriptor, const void *data,
+                                           const string attributeName,
+                                           void *key, Attribute &attribute) {
+    int offset = getByteOfNullsIndicator(recordDescriptor.size());
+    for (Attribute currentAttribute : recordDescriptor) {
+        if (currentAttribute.name == attributeName) {
+            attribute = currentAttribute;
+            switch (currentAttribute.type) {
+                case TypeInt:
+                case TypeReal:
+                    memcpy(key, (char *) data + offset, 4);
+                    break;
+                case TypeVarChar:
+                    uint32_t length = *((const uint32_t *) ((char *) data + offset));
+                    memcpy(key, (char *) data + offset, 4 + length);
+                    break;
+            }
+            break;
+        } else {
+            switch (currentAttribute.type) {
+                case TypeInt:
+                case TypeReal:
+                    offset += 4;
+                    break;
+                case TypeVarChar:
+                    uint32_t length = *((const uint32_t *) ((char *) data + offset));
+                    offset += (4 + length);
+                    break;
+            }
+        }
     }
     return SUCCESS;
 }

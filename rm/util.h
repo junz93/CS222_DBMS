@@ -7,6 +7,7 @@
 #include <cstring>
 #include <string>
 #include <sys/stat.h>
+
 using namespace std;
 
 // Calculate actual bytes for nulls-indicator for the given field counts
@@ -78,6 +79,43 @@ void prepareTupleForColumns(int attributeCount, const int tableID, const string 
     // write columnPosition to tuple record
     memcpy((char *) tuple + offset, &columnPosition, sizeof(int));
     offset += sizeof(int);
+
+    // write isSystemInfo to tuple record
+    memcpy((char *) tuple + offset, &isSystemInfo, sizeof(int));
+    offset += sizeof(int);
+}
+
+// prepare tuple that would be written to "Tables" table
+void
+prepareTupleForIndices(int attributeCount, const string indexName, const string attributeName, const string tableName,
+                       const int isSystemInfo, void *tuple) {
+    int offset = 0;
+    int nullAttributesIndicatorActualSize = getByteOfNullsIndicator(attributeCount);
+    int nameLength = indexName.size();
+
+    // write Null-indicator to tuple record
+    memset((char *) tuple + offset, 0, nullAttributesIndicatorActualSize);
+    offset += nullAttributesIndicatorActualSize;
+
+    // write indexName to tuple record
+    memcpy((char *) tuple + offset, &nameLength, sizeof(uint32_t));
+    offset += sizeof(int);
+    memcpy((char *) tuple + offset, indexName.c_str(), nameLength);
+    offset += nameLength;
+
+    // write attributeName to tuple record
+    nameLength = attributeName.size();
+    memcpy((char *) tuple + offset, &nameLength, sizeof(uint32_t));
+    offset += sizeof(int);
+    memcpy((char *) tuple + offset, attributeName.c_str(), nameLength);
+    offset += nameLength;
+
+    // write tableName to tuple record
+    nameLength = tableName.size();
+    memcpy((char *) tuple + offset, &nameLength, sizeof(uint32_t));
+    offset += sizeof(int);
+    memcpy((char *) tuple + offset, tableName.c_str(), nameLength);
+    offset += nameLength;
 
     // write isSystemInfo to tuple record
     memcpy((char *) tuple + offset, &isSystemInfo, sizeof(int));

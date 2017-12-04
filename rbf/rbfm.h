@@ -111,30 +111,9 @@ private:
         return pageNum % (MAX_NUM_OF_ENTRIES + 1) == 0;
     }
 
-    bool compare(AttrType type, CompOp compOp, const void *op1, const void *op2);
+    bool compareName(AttrType type, CompOp compOp, const void *op1, const void *op2);
 
     void transmuteRecord(unsigned recordOffset, void *data);
-
-    template<typename T>
-    bool compare(CompOp compOp, T op1, T op2)
-    {
-        switch (compOp) {
-            case NO_OP:
-                return true;
-            case EQ_OP:
-                return op1 == op2;
-            case LT_OP:
-                return op1 < op2;
-            case LE_OP:
-                return op1 <= op2;
-            case GT_OP:
-                return op1 > op2;
-            case GE_OP:
-                return op1 >= op2;
-            case NE_OP:
-                return op1 != op2;
-        }
-    }
 };
 
 
@@ -332,6 +311,27 @@ unsigned RecordBasedFileManager::getFieldEndOffset(const byte *page, unsigned re
     unsigned preOffset = getBytesOfNullFlags(numOfFields);
     unsigned endOffset = *((uint16_t*) (page + recordOffset + preOffset + fieldNum*FIELD_OFFSET_SZ));
     return preOffset + numOfFields * FIELD_OFFSET_SZ + endOffset;
+}
+
+template<typename T>
+inline bool compare(CompOp compOp, T op1, T op2)
+{
+    switch (compOp) {
+        case NO_OP:
+            return true;
+        case EQ_OP:
+            return op1 == op2;
+        case LT_OP:
+            return op1 < op2;
+        case LE_OP:
+            return op1 <= op2;
+        case GT_OP:
+            return op1 > op2;
+        case GE_OP:
+            return op1 >= op2;
+        case NE_OP:
+            return op1 != op2;
+    }
 }
 
 #endif

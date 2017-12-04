@@ -1,5 +1,4 @@
 #include "rm.h"
-#include "util.h"
 
 RelationManager *RelationManager::_rm = nullptr;
 
@@ -779,11 +778,11 @@ RC RelationManager::prepareKeyAndAttribute(const vector<Attribute> recordDescrip
                     memcpy(key, (char *) data + offset, 4);
                     break;
                 case TypeVarChar:
-                    uint32_t length = *((const uint32_t *) ((char *) data + offset));
+                    uint32_t length = *((uint32_t *) ((char *) data + offset));
                     memcpy(key, (char *) data + offset, 4 + length);
                     break;
             }
-            break;
+            return SUCCESS;
         } else {
             switch (currentAttribute.type) {
                 case TypeInt:
@@ -791,13 +790,13 @@ RC RelationManager::prepareKeyAndAttribute(const vector<Attribute> recordDescrip
                     offset += 4;
                     break;
                 case TypeVarChar:
-                    uint32_t length = *((const uint32_t *) ((char *) data + offset));
+                    uint32_t length = *((uint32_t *) ((char *) data + offset));
                     offset += (4 + length);
                     break;
             }
         }
     }
-    return SUCCESS;
+    return FAIL;
 }
 
 

@@ -750,7 +750,7 @@ RC RBFM_ScanIterator::getNextRecord(RID &rid, void *data)
                 if (!rbfm->readField(page, recordOffset, conditionAttrNum, numOfFields, conditionAttr, field.get())) {
                     field.reset();
                 }
-                compareResult = compare(conditionAttr.type, compOp, field.get(), value);
+                compareResult = compareName(conditionAttr.type, compOp, field.get(), value);
             }
             if (compareResult) {
                 transmuteRecord(recordOffset, data);
@@ -774,7 +774,7 @@ RC RBFM_ScanIterator::close()
     return SUCCESS;
 }
 
-bool RBFM_ScanIterator::compare(AttrType type, CompOp compOp, const void *op1, const void *op2)
+bool RBFM_ScanIterator::compareName(AttrType type, CompOp compOp, const void *op1, const void *op2)
 {
     if (compOp == NO_OP) {
         return true;

@@ -1,3 +1,4 @@
+#include <cstring>
 #include "rm.h"
 
 RelationManager *RelationManager::_rm = nullptr;
@@ -288,14 +289,14 @@ RC RelationManager::indexScan(const string &tableName,
                               bool lowKeyInclusive,
                               bool highKeyInclusive,
                               RM_IndexScanIterator &rm_IndexScanIterator) {
-    IXFileHandle ixfileHandle;
-    IX_ScanIterator ix_ScanIterator;
+    IXFileHandle *ixfileHandle = new IXFileHandle;
+    IX_ScanIterator &ix_ScanIterator = rm_IndexScanIterator.ix_scanIterator;
     int tableId;
     RID rid;
     Attribute attribute;
     string indexName = tableName + "：" + attributeName;
 
-    if (ix->openFile(indexName, ixfileHandle) == FAIL) {
+    if (ix->openFile(indexName, *ixfileHandle) == FAIL) {
         return FAIL;
     }
     if (prepareTableIdAndTablesRid(tableName, tableId, rid) == FAIL) {
@@ -305,11 +306,11 @@ RC RelationManager::indexScan(const string &tableName,
     if (attribute.length == 0) {
         return FAIL;
     }
-    if (ix->scan(ixfileHandle, attribute, lowKey, highKey, lowKeyInclusive, highKeyInclusive, ix_ScanIterator)
+    if (ix->scan(*ixfileHandle, attribute, lowKey, highKey, lowKeyInclusive, highKeyInclusive, ix_ScanIterator)
         == FAIL) {
         return FAIL;
     }
-    rm_IndexScanIterator.ix_scanIterator = ix_ScanIterator;
+//    rm_IndexScanIterator.ix_scanIterator = ix_ScanIterator;
 
     return SUCCESS;
 }
@@ -461,7 +462,7 @@ void RelationManager::prepareRecordDescriptorForColumnsTable(vector<Attribute> &
 }
 
 /** private functions for reading and writing metadata **/
-RC RelationManager::prepareTableIdAndTablesRid(const string tableName, int &tableId, RID &rid) {
+RC RelationManager::prepareTableIdAndTablesRid(const string &tableName, int &tableId, RID &rid) {
     RM_ScanIterator rm_scanIterator;
     void *returnedData = malloc(PAGE_SIZE);
     void *scanValueOfTableName = malloc(tableName.size() + 4);
@@ -473,14 +474,14 @@ RC RelationManager::prepareTableIdAndTablesRid(const string tableName, int &tabl
         return FAIL;
     }
     if (rm_scanIterator.getNextTuple(rid, returnedData) == RM_EOF) { return FAIL; }
-    tableId = *((int *) ((char *) returnedData + getByteOfNullsIndicator(attributeNames.size())));
+    tableId = *((int *) ((char *) returnedData + getBytesOfNullIndicator(attributeNames.size())));
     free(scanValueOfTableName);
     free(returnedData);
     rm_scanIterator.close();
     return SUCCESS;
 }
 
-RC RelationManager::prepareIndexRid(const string indexName, RID &rid) {
+RC RelationManager::prepareIndexRid(const string &indexName, RID &rid) {
     RM_ScanIterator rm_scanIterator;
     void *returnedData = malloc(PAGE_SIZE);
     void *scanValueOfIndexName = malloc(indexName.size() + 4);
@@ -507,7 +508,7 @@ RC RelationManager::preparePositionAttributeMap(int tableId, unordered_map<int, 
     attributeNames.push_back(COLUMN_TYPE);
     attributeNames.push_back(COLUMN_LENGTH);
     attributeNames.push_back(COLUMN_POSITION);
-    int nullFieldIndicatorSize = getByteOfNullsIndicator(attributeNames.size());
+    int nullFieldIndicatorSize = getBytesOfNullIndicator(attributeNames.size());
 
     if (scan(COLUMNS_TABLE, TABLE_ID, EQ_OP, getScanValue(tableId), attributeNames, rm_scanIterator) == FAIL) {
         return FAIL;
@@ -546,7 +547,7 @@ RC RelationManager::deleteTargetTableTuplesInColumnsTable(int tableId) {
     vector<Attribute> recordDescriptor;
     prepareRecordDescriptorForColumnsTable(recordDescriptor);
     attributeNames.push_back(COLUMN_NAME);
-    int nullFieldIndicatorSize = getByteOfNullsIndicator(attributeNames.size());
+    int nullFieldIndicatorSize = getBytesOfNullIndicator(attributeNames.size());
 
     if (scan(COLUMNS_TABLE, TABLE_ID, EQ_OP, getScanValue(tableId), attributeNames, rm_scanIterator) == FAIL) {
         return FAIL;
@@ -559,7 +560,7 @@ RC RelationManager::deleteTargetTableTuplesInColumnsTable(int tableId) {
     return SUCCESS;
 }
 
-RC RelationManager::deleteRelatedIndicesTableTuples(const string tableName) {
+RC RelationManager::deleteRelatedIndicesTableTuples(const string &tableName) {
     RID rid;
     RM_ScanIterator rm_scanIterator;
     void *returnedData = malloc(200);
@@ -599,7 +600,7 @@ RC RelationManager::deleteCatalogTuple(const string &tableName, const RID &rid) 
 }
 
 /** private functions for general use **/
-Attribute RelationManager::getAttribute(const string attributeName, const int tableId) {
+Attribute RelationManager::getAttribute(const string &attributeName, int tableId) {
     Attribute attribute;
     attribute.length = 0;
     RID rid;
@@ -609,13 +610,13 @@ Attribute RelationManager::getAttribute(const string attributeName, const int ta
     attributeNames.push_back(COLUMN_NAME);
     attributeNames.push_back(COLUMN_TYPE);
     attributeNames.push_back(COLUMN_LENGTH);
-    int offset = getByteOfNullsIndicator(attributeNames.size());
+//    int offset = getBytesOfNullIndicator(attributeNames.size());
 
     if (scan(COLUMNS_TABLE, TABLE_ID, EQ_OP, &tableId, attributeNames, rm_scanIterator) == FAIL) {
         return attribute;
     }
     while (rm_scanIterator.getNextTuple(rid, returnedData) != RM_EOF) {
-
+        int offset = getBytesOfNullIndicator(attributeNames.size());
         int nameLength = *((int *) ((char *) returnedData + offset));
         offset += sizeof(int);
         string currentAttributeName((char *) returnedData + offset, nameLength);
@@ -650,22 +651,22 @@ uint32_t RelationManager::getLastTableId() {
     return tableId;
 }
 
-bool RelationManager::isSystemTable(const string tableName) {
+bool RelationManager::isSystemTable(const string &tableName) {
     return tableName == TABLES_TABLE || tableName == COLUMNS_TABLE || tableName == CATALOG_INFO;
 }
 
-bool RelationManager::isSystemTuple(const string tableName, const RID rid) {
+bool RelationManager::isSystemTuple(const string &tableName, const RID &rid) {
     if (tableName != TABLES_TABLE && tableName != COLUMNS_TABLE) {
         return false;
     }
     void *returnedData = malloc(PAGE_SIZE);
     readAttribute(tableName, rid, SYSTEM_FLAG, returnedData);
-    int systemFlag = *((int *) ((char *) returnedData + getByteOfNullsIndicator(1)));
+    int systemFlag = *((int *) ((char *) returnedData + getBytesOfNullIndicator(1)));
     free(returnedData);
     return systemFlag == 1;
 }
 
-RC RelationManager::prepareRecordDescriptor(const string tableName, vector<Attribute> &recordDescriptor) {
+RC RelationManager::prepareRecordDescriptor(const string &tableName, vector<Attribute> &recordDescriptor) {
     if (tableName == COLUMNS_TABLE) {
         prepareRecordDescriptorForColumnsTable(recordDescriptor);
     } else if (tableName == TABLES_TABLE) {
@@ -676,7 +677,7 @@ RC RelationManager::prepareRecordDescriptor(const string tableName, vector<Attri
     return SUCCESS;
 }
 
-RC RelationManager::prepareRelatedIndices(const string tableName, vector<Index> &relatedIndices) {
+RC RelationManager::prepareRelatedIndices(const string &tableName, vector<Index> &relatedIndices) {
     RID rid;
     RM_ScanIterator rm_scanIterator;
     void *returnedData = malloc(PAGE_SIZE);
@@ -690,7 +691,7 @@ RC RelationManager::prepareRelatedIndices(const string tableName, vector<Index> 
     }
     while (rm_scanIterator.getNextTuple(rid, returnedData) != RM_EOF) {
         Index currentIndex;
-        int offset = getByteOfNullsIndicator(attributeNames.size());
+        int offset = getBytesOfNullIndicator(attributeNames.size());
         int nameLength = *((int *) ((char *) returnedData + offset));
         offset += sizeof(int);
         string currentAttributeName((char *) returnedData + offset, nameLength);
@@ -706,8 +707,8 @@ RC RelationManager::prepareRelatedIndices(const string tableName, vector<Index> 
     return SUCCESS;
 }
 
-RC RelationManager::insertEntriesToRelatedIndices(const vector<Index> relatedIndices,
-                                                  const vector<Attribute> recordDescriptor, const void *data) {
+RC RelationManager::insertEntriesToRelatedIndices(const vector<Index> &relatedIndices,
+                                                  const vector<Attribute> &recordDescriptor, const void *data) {
     IXFileHandle ixFileHandle;
     RID rid;
     void *key = malloc(PAGE_SIZE);
@@ -731,8 +732,8 @@ RC RelationManager::insertEntriesToRelatedIndices(const vector<Index> relatedInd
     return SUCCESS;
 }
 
-RC RelationManager::deleteEntriesToRelatedIndices(const vector<Index> relatedIndices,
-                                                  const vector<Attribute> recordDescriptor, const void *data) {
+RC RelationManager::deleteEntriesToRelatedIndices(const vector<Index> &relatedIndices,
+                                                  const vector<Attribute> &recordDescriptor, const void *data) {
     IXFileHandle ixFileHandle;
     RID rid;
     void *key = malloc(PAGE_SIZE);
@@ -756,7 +757,7 @@ RC RelationManager::deleteEntriesToRelatedIndices(const vector<Index> relatedInd
     return SUCCESS;
 }
 
-RC RelationManager::deleteRelatedIndexFiles(const vector<Index> relatedIndices) {
+RC RelationManager::deleteRelatedIndexFiles(const vector<Index> &relatedIndices) {
     for (Index index : relatedIndices) {
         if (ix->destroyFile(index.indexName) == FAIL) {
             return FAIL;
@@ -765,10 +766,10 @@ RC RelationManager::deleteRelatedIndexFiles(const vector<Index> relatedIndices) 
     return SUCCESS;
 }
 
-RC RelationManager::prepareKeyAndAttribute(const vector<Attribute> recordDescriptor, const void *data,
-                                           const string attributeName,
+RC RelationManager::prepareKeyAndAttribute(const vector<Attribute> &recordDescriptor, const void *data,
+                                           const string &attributeName,
                                            void *key, Attribute &attribute) {
-    int offset = getByteOfNullsIndicator(recordDescriptor.size());
+    int offset = getBytesOfNullIndicator(recordDescriptor.size());
     for (Attribute currentAttribute : recordDescriptor) {
         if (currentAttribute.name == attributeName) {
             attribute = currentAttribute;
@@ -797,6 +798,108 @@ RC RelationManager::prepareKeyAndAttribute(const vector<Attribute> recordDescrip
         }
     }
     return FAIL;
+}
+
+void prepareTupleForTables(int attributeCount, int tableID, const string &name, int isSystemInfo, void *tuple) {
+    int offset = 0;
+    int nullAttributesIndicatorActualSize = getBytesOfNullIndicator(attributeCount);
+    int nameLength = name.size();
+
+    // write Null-indicator to tuple record
+    memset((char *) tuple + offset, 0, nullAttributesIndicatorActualSize);
+    offset += nullAttributesIndicatorActualSize;
+
+    // write tableID to tuple record
+    memcpy((char *) tuple + offset, &tableID, sizeof(int));
+    offset += sizeof(int);
+
+    // write tableName to tuple record
+    memcpy((char *) tuple + offset, &nameLength, sizeof(uint32_t));
+    offset += sizeof(int);
+    memcpy((char *) tuple + offset, name.c_str(), nameLength);
+    offset += nameLength;
+
+    // write fileName to tuple record
+    memcpy((char *) tuple + offset, &nameLength, sizeof(uint32_t));
+    offset += sizeof(int);
+    memcpy((char *) tuple + offset, name.c_str(), nameLength);
+    offset += nameLength;
+
+    // write isSystemInfo to tuple record
+    memcpy((char *) tuple + offset, &isSystemInfo, sizeof(int));
+    offset += sizeof(int);
+}
+
+void prepareTupleForColumns(int attributeCount, int tableID, const string &columnName, int columnType,
+                            int columnLength, int columnPosition, int isSystemInfo, void *tuple) {
+    int offset = 0;
+    int nullAttributesIndicatorActualSize = getBytesOfNullIndicator(attributeCount);
+    int nameLength = columnName.size();
+
+    // write Null-indicator to tuple record
+    memset((char *) tuple + offset, 0, nullAttributesIndicatorActualSize);
+    offset += nullAttributesIndicatorActualSize;
+
+    // write tableID to tuple record
+    memcpy((char *) tuple + offset, &tableID, sizeof(int));
+    offset += sizeof(int);
+
+    // write columnName to tuple record
+    memcpy((char *) tuple + offset, &nameLength, sizeof(uint32_t));
+    offset += sizeof(int);
+    memcpy((char *) tuple + offset, columnName.c_str(), nameLength);
+    offset += nameLength;
+
+    // write columnType to tuple record
+    memcpy((char *) tuple + offset, &columnType, sizeof(int));
+    offset += sizeof(int);
+
+    // write columnLength to tuple record
+    memcpy((char *) tuple + offset, &columnLength, sizeof(int));
+    offset += sizeof(int);
+
+    // write columnPosition to tuple record
+    memcpy((char *) tuple + offset, &columnPosition, sizeof(int));
+    offset += sizeof(int);
+
+    // write isSystemInfo to tuple record
+    memcpy((char *) tuple + offset, &isSystemInfo, sizeof(int));
+    offset += sizeof(int);
+}
+
+void prepareTupleForIndices(int attributeCount, const string &indexName, const string &attributeName,
+                            const string &tableName, int isSystemInfo, void *tuple) {
+    int offset = 0;
+    int nullAttributesIndicatorActualSize = getBytesOfNullIndicator(attributeCount);
+    int nameLength = indexName.size();
+
+    // write Null-indicator to tuple record
+    memset((char *) tuple + offset, 0, nullAttributesIndicatorActualSize);
+    offset += nullAttributesIndicatorActualSize;
+
+    // write indexName to tuple record
+    memcpy((char *) tuple + offset, &nameLength, sizeof(uint32_t));
+    offset += sizeof(int);
+    memcpy((char *) tuple + offset, indexName.c_str(), nameLength);
+    offset += nameLength;
+
+    // write attributeName to tuple record
+    nameLength = attributeName.size();
+    memcpy((char *) tuple + offset, &nameLength, sizeof(uint32_t));
+    offset += sizeof(int);
+    memcpy((char *) tuple + offset, attributeName.c_str(), nameLength);
+    offset += nameLength;
+
+    // write tableName to tuple record
+    nameLength = tableName.size();
+    memcpy((char *) tuple + offset, &nameLength, sizeof(uint32_t));
+    offset += sizeof(int);
+    memcpy((char *) tuple + offset, tableName.c_str(), nameLength);
+    offset += nameLength;
+
+    // write isSystemInfo to tuple record
+    memcpy((char *) tuple + offset, &isSystemInfo, sizeof(int));
+    offset += sizeof(int);
 }
 
 

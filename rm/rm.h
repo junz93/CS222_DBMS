@@ -43,8 +43,6 @@ private:
 class RM_IndexScanIterator {
     friend class RelationManager;
 
-private:
-    IX_ScanIterator ix_scanIterator;
 public:
     RM_IndexScanIterator() {}    // Constructor
     ~RM_IndexScanIterator() {}    // Destructor
@@ -54,6 +52,8 @@ public:
         return ix_scanIterator.getNextEntry(rid, key);
     }    // Get next matching entry
     RC close() { return ix_scanIterator.close(); }                        // Terminate index scan
+private:
+    IX_ScanIterator ix_scanIterator;
 };
 
 // Relation Manager
@@ -157,169 +157,70 @@ private:
     void prepareRecordDescriptorForColumnsTable(vector<Attribute> &recordDescriptor);
 
     /** private functions for reading and writing metadata **/
-    RC prepareTableIdAndTablesRid(const string tableName, int &tableId, RID &rid);
+    RC prepareTableIdAndTablesRid(const string &tableName, int &tableId, RID &rid);
 
-    RC prepareIndexRid(const string indexName, RID &rid);
+    RC prepareIndexRid(const string &indexName, RID &rid);
 
     RC preparePositionAttributeMap(int tableId, unordered_map<int, Attribute> &positionAttributeMap);
 
     RC deleteTargetTableTuplesInColumnsTable(int tableId);
 
-    RC deleteRelatedIndicesTableTuples(const string tableName);
+    RC deleteRelatedIndicesTableTuples(const string &tableName);
 
     RC deleteCatalogTuple(const string &tableName, const RID &rid);
 
     /** private functions for general use **/
-    Attribute getAttribute(const string attributeName, const int tableId);
+    Attribute getAttribute(const string &attributeName, int tableId);
 
     void updateLastTableId(uint32_t tableId);
 
     uint32_t getLastTableId();
 
-    bool isSystemTable(const string tableName);
+    bool isSystemTable(const string &tableName);
 
-    bool isSystemTuple(const string tableName, const RID rid);
+    bool isSystemTuple(const string &tableName, const RID &rid);
 
-    RC prepareRecordDescriptor(const string tableName, vector<Attribute> &recordDescriptor);
+    RC prepareRecordDescriptor(const string &tableName, vector<Attribute> &recordDescriptor);
 
-    RC prepareRelatedIndices(const string tableName, vector<Index> &relatedIndices);
+    RC prepareRelatedIndices(const string &tableName, vector<Index> &relatedIndices);
 
-    RC insertEntriesToRelatedIndices(const vector<Index> relatedIndices, const vector<Attribute> recordDescriptor,
+    RC insertEntriesToRelatedIndices(const vector<Index> &relatedIndices, const vector<Attribute> &recordDescriptor,
                                      const void *data);
 
-    RC deleteEntriesToRelatedIndices(const vector<Index> relatedIndices, const vector<Attribute> recordDescriptor,
+    RC deleteEntriesToRelatedIndices(const vector<Index> &relatedIndices, const vector<Attribute> &recordDescriptor,
                                      const void *data);
 
-    RC deleteRelatedIndexFiles(const vector<Index> relatedIndices);
+    RC deleteRelatedIndexFiles(const vector<Index> &relatedIndices);
 
-    RC prepareKeyAndAttribute(const vector<Attribute> recordDescriptor, const void *data, const string attributeName,
+    RC prepareKeyAndAttribute(const vector<Attribute> &recordDescriptor, const void *data, const string &attributeName,
                               void *key, Attribute &attribute);
-
 };
 
-// Calculate actual bytes for nulls-indicator for the given field counts
-inline int getByteOfNullsIndicator(int fieldCount) {
-    return ceil((double) fieldCount / CHAR_BIT);
-}
-
 // prepare tuple that would be written to "Tables" table
-inline void prepareTupleForTables(int attributeCount, const int tableID, const string &name,
-                           const int isSystemInfo, void *tuple) {
-    int offset = 0;
-    int nullAttributesIndicatorActualSize = getByteOfNullsIndicator(attributeCount);
-    int nameLength = name.size();
-
-    // write Null-indicator to tuple record
-    memset((char *) tuple + offset, 0, nullAttributesIndicatorActualSize);
-    offset += nullAttributesIndicatorActualSize;
-
-    // write tableID to tuple record
-    memcpy((char *) tuple + offset, &tableID, sizeof(int));
-    offset += sizeof(int);
-
-    // write tableName to tuple record
-    memcpy((char *) tuple + offset, &nameLength, sizeof(uint32_t));
-    offset += sizeof(int);
-    memcpy((char *) tuple + offset, name.c_str(), nameLength);
-    offset += nameLength;
-
-    // write fileName to tuple record
-    memcpy((char *) tuple + offset, &nameLength, sizeof(uint32_t));
-    offset += sizeof(int);
-    memcpy((char *) tuple + offset, name.c_str(), nameLength);
-    offset += nameLength;
-
-    // write isSystemInfo to tuple record
-    memcpy((char *) tuple + offset, &isSystemInfo, sizeof(int));
-    offset += sizeof(int);
-}
+void prepareTupleForTables(int attributeCount, int tableID, const string &name, int isSystemInfo, void *tuple);
 
 // prepare tuple that would be written to "Columns" table
-inline void prepareTupleForColumns(int attributeCount, const int tableID, const string &columnName, const int columnType,
-                            const int columnLength, const int columnPosition, const int isSystemInfo, void *tuple) {
-    int offset = 0;
-    int nullAttributesIndicatorActualSize = getByteOfNullsIndicator(attributeCount);
-    int nameLength = columnName.size();
-
-    // write Null-indicator to tuple record
-    memset((char *) tuple + offset, 0, nullAttributesIndicatorActualSize);
-    offset += nullAttributesIndicatorActualSize;
-
-    // write tableID to tuple record
-    memcpy((char *) tuple + offset, &tableID, sizeof(int));
-    offset += sizeof(int);
-
-    // write columnName to tuple record
-    memcpy((char *) tuple + offset, &nameLength, sizeof(uint32_t));
-    offset += sizeof(int);
-    memcpy((char *) tuple + offset, columnName.c_str(), nameLength);
-    offset += nameLength;
-
-    // write columnType to tuple record
-    memcpy((char *) tuple + offset, &columnType, sizeof(int));
-    offset += sizeof(int);
-
-    // write columnLength to tuple record
-    memcpy((char *) tuple + offset, &columnLength, sizeof(int));
-    offset += sizeof(int);
-
-    // write columnPosition to tuple record
-    memcpy((char *) tuple + offset, &columnPosition, sizeof(int));
-    offset += sizeof(int);
-
-    // write isSystemInfo to tuple record
-    memcpy((char *) tuple + offset, &isSystemInfo, sizeof(int));
-    offset += sizeof(int);
-}
+void prepareTupleForColumns(int attributeCount, int tableID, const string &columnName, int columnType,
+                            int columnLength, int columnPosition, int isSystemInfo, void *tuple);
 
 // prepare tuple that would be written to "Tables" table
-inline void
-prepareTupleForIndices(int attributeCount, const string indexName, const string attributeName, const string tableName,
-                       const int isSystemInfo, void *tuple) {
-    int offset = 0;
-    int nullAttributesIndicatorActualSize = getByteOfNullsIndicator(attributeCount);
-    int nameLength = indexName.size();
-
-    // write Null-indicator to tuple record
-    memset((char *) tuple + offset, 0, nullAttributesIndicatorActualSize);
-    offset += nullAttributesIndicatorActualSize;
-
-    // write indexName to tuple record
-    memcpy((char *) tuple + offset, &nameLength, sizeof(uint32_t));
-    offset += sizeof(int);
-    memcpy((char *) tuple + offset, indexName.c_str(), nameLength);
-    offset += nameLength;
-
-    // write attributeName to tuple record
-    nameLength = attributeName.size();
-    memcpy((char *) tuple + offset, &nameLength, sizeof(uint32_t));
-    offset += sizeof(int);
-    memcpy((char *) tuple + offset, attributeName.c_str(), nameLength);
-    offset += nameLength;
-
-    // write tableName to tuple record
-    nameLength = tableName.size();
-    memcpy((char *) tuple + offset, &nameLength, sizeof(uint32_t));
-    offset += sizeof(int);
-    memcpy((char *) tuple + offset, tableName.c_str(), nameLength);
-    offset += nameLength;
-
-    // write isSystemInfo to tuple record
-    memcpy((char *) tuple + offset, &isSystemInfo, sizeof(int));
-    offset += sizeof(int);
-}
+void prepareTupleForIndices(int attributeCount, const string &indexName, const string &attributeName, 
+                            const string &tableName, int isSystemInfo, void *tuple);
 
 // get the value of condition attribute for scan function
-inline void prepareScanValue(const string typeVarCharValue, void *value) {
+inline 
+void prepareScanValue(const string &typeVarCharValue, void *value) {
     *(int *) (value) = typeVarCharValue.size();
     memcpy((char *) value + 4, typeVarCharValue.c_str(), typeVarCharValue.size());
 }
 
-inline void *getScanValue(int &typeIntValue) {
+inline 
+void *getScanValue(int &typeIntValue) {
     return &typeIntValue;
 }
 
-inline void *getScanValue(float &typeRealValue) {
+inline 
+void *getScanValue(float &typeRealValue) {
     return &typeRealValue;
 }
 

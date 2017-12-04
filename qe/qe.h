@@ -181,12 +181,9 @@ public:
 class Filter : public Iterator {
     // Filter operator
 public:
-    Filter(Iterator *input, const Condition &condition) : iter(input), condition(condition) {
-        // Get Attributes from input iterator
-        input->getAttributes(attrs);
-    }
+    Filter(Iterator *input, const Condition &condition);
 
-    ~Filter() {};
+    ~Filter() {}
 
     RC getNextTuple(void *data);
 
@@ -195,78 +192,153 @@ public:
 
 private:
     Iterator *iter;
-    const Condition &condition;
+    const Condition condition;
     vector<Attribute> attrs;
+    unsigned attrNo;
 
     RC getLhsValue(const vector<Attribute> attrs, const string attrName, const void *data, Value &value);
-    bool isQulifiedTuple(const Value lhsValue, const CompOp op, const Value rhsValue);
+    bool isQualifiedTuple(const Value lhsValue, const CompOp op, const Value rhsValue);
 };
 
 
 class Project : public Iterator {
     // Projection operator
 public:
-    Project(Iterator *input,                    // Iterator of input R
-            const vector<string> &attrNames) {};   // vector containing attribute names
+    Project(Iterator *input, const vector<string> &attrNames) : iter(input) {
+        input->getAttributes(originalAttrs);
+        prepareNameAttributeMap(originalAttrs);
+        prepareAttrs(attrNames);
+    };
     ~Project() {};
 
-    RC getNextTuple(void *data) { return QE_EOF; };
+    RC getNextTuple(void *data);
 
     // For attribute in vector<Attribute>, name it as rel.attr
-    void getAttributes(vector<Attribute> &attrs) const {};
+    void getAttributes(vector<Attribute> &attrs) const;
+
+private:
+    Iterator *iter;
+    vector<Attribute> attrs;
+    vector<Attribute> originalAttrs;
+    unordered_map<string, Attribute> nameAttributeMap;
+    //const vector<string> &targetAttrNames;
+    void prepareNameAttributeMap(const vector<Attribute> attrs);
+    void prepareAttrs(const vector<string> attrNames);
 };
 
 class BNLJoin : public Iterator {
-    // Block nested-loop join operator
+// Block nested-loop join operator
 public:
     BNLJoin(Iterator *leftIn,            // Iterator of input R
-            TableScan *rightIn,           // TableScan Iterator of input S
-            const Condition &condition,   // Join condition
-            const unsigned numPages       // # of pages that can be loaded into memory,
-            //   i.e., memory block size (decided by the optimizer)
-    ) {};
+           TableScan *rightIn,           // TableScan Iterator of input S
+           const Condition &condition,   // Join condition
+           const unsigned numPages       // # of pages that can be loaded into memory,
+                                         //   i.e., memory block size (decided by the optimizer)
+    );
+    ~BNLJoin();
 
-    ~BNLJoin() {};
-
-    RC getNextTuple(void *data) { return QE_EOF; };
-
+    RC getNextTuple(void *data);
     // For attribute in vector<Attribute>, name it as rel.attr
-    void getAttributes(vector<Attribute> &attrs) const {};
+    void getAttributes(vector<Attribute> &attrs) const;
+
+private:
+    Iterator *leftIn;
+    TableScan *rightIn;
+    Condition condition;
+    vector<Attribute> leftAttrs;
+    vector<Attribute> rightAttrs;
+    vector<Attribute> attrs;
+    unsigned numOfBufferPages;          // number of buffer pages for left relation
+    unsigned leftAttrNo;                // no of condition attribute in left relation
+    unsigned rightAttrNo;               // no of condition attribute in right relation
+    AttrType attrType;                  // type of condition attribute
+
+    byte *leftBuffer = nullptr;         // memory buffer for tuples from left relation
+    unsigned leftBufferSize = 0;
+    void *hashTable = nullptr;          // hash table for tuples in leftBuffer
+    vector<unsigned> leftOffsets;
+    unsigned leftIdx = 0;
+    byte leftTuple[PAGE_SIZE];          // the last tuple from left relation
+    unsigned lastLeftTupleLength = 0;   // length of the last left tuple that is not loaded into leftBuffer
+    byte rightTuple[PAGE_SIZE];         // current tuple from right relation
 };
 
 
 class INLJoin : public Iterator {
-    // Index nested-loop join operator
+// Index nested-loop join operator
 public:
     INLJoin(Iterator *leftIn,           // Iterator of input R
-            IndexScan *rightIn,          // IndexScan Iterator of input S
-            const Condition &condition   // Join condition
-    ) {};
+           IndexScan *rightIn,          // IndexScan Iterator of input S
+           const Condition &condition   // Join condition
+    );
+    ~INLJoin();
 
-    ~INLJoin() {};
-
-    RC getNextTuple(void *data) { return QE_EOF; };
-
+    RC getNextTuple(void *data);
     // For attribute in vector<Attribute>, name it as rel.attr
-    void getAttributes(vector<Attribute> &attrs) const {};
+    void getAttributes(vector<Attribute> &attrs) const;
+
+private:
+    Iterator *leftIn;
+    IndexScan *rightIn;
+    Condition condition;
+    vector<Attribute> leftAttrs;
+    vector<Attribute> rightAttrs;
+    vector<Attribute> attrs;
+    unsigned leftAttrNo;            // no of condition attribute in left relation
+    unsigned rightAttrNo;           // no of condition attribute in right relation
+    AttrType attrType;              // type of condition attribute
+
+    byte leftTuple[PAGE_SIZE];
+    bool isLeftTupleEmpty = true;
 };
 
 // Optional for everyone. 10 extra-credit points
 class GHJoin : public Iterator {
     // Grace hash join operator
 public:
-    GHJoin(Iterator *leftIn,               // Iterator of input R
-           Iterator *rightIn,               // Iterator of input S
-           const Condition &condition,      // Join condition (CompOp is always EQ)
-           const unsigned numPartitions     // # of partitions for each relation (decided by the optimizer)
-    ) {};
+  GHJoin(Iterator *leftIn,               // Iterator of input R
+        Iterator *rightIn,               // Iterator of input S
+        const Condition &condition,      // Join condition (CompOp is always EQ)
+        const unsigned numPartitions     // # of partitions for each relation (decided by the optimizer)
+  );
+  ~GHJoin();
 
-    ~GHJoin() {};
+  RC getNextTuple(void *data);
+  // For attribute in vector<Attribute>, name it as rel.attr
+  void getAttributes(vector<Attribute> &attrs) const;
 
-    RC getNextTuple(void *data) { return QE_EOF; };
+private:
+    RecordBasedFileManager *rbfm = RecordBasedFileManager::instance();
 
-    // For attribute in vector<Attribute>, name it as rel.attr
-    void getAttributes(vector<Attribute> &attrs) const {};
+    Iterator *leftIn;
+    Iterator *rightIn;
+    Condition condition;
+    unsigned numOfPartitions;
+    unsigned curPartitionNum = 0;
+
+    string leftRelName;        // name of the left relation
+    string rightRelName;       // name of the right relation
+    vector<Attribute> leftAttrs;
+    vector<Attribute> rightAttrs;
+    vector<string> leftAttrNames;
+    vector<string> rightAttrNames;
+    vector<Attribute> attrs;
+    unsigned leftAttrNo;            // no of condition attribute in left relation
+    unsigned rightAttrNo;           // no of condition attribute in right relation
+    AttrType attrType;              // type of condition attribute
+
+    FileHandle *leftFileHandles = nullptr;
+    FileHandle *rightFileHandles = nullptr;
+    RBFM_ScanIterator leftIterator;
+    RBFM_ScanIterator rightIterator;
+    byte *leftBuffer = nullptr;     // memory buffer for tuples from left relation
+    unsigned leftBufferSize = 0;    // size of tuples in leftBuffer
+    void *hashTable = nullptr;
+    vector<unsigned> leftOffsets;
+    unsigned leftIdx = 0;
+//    byte leftTuple[PAGE_SIZE];          // the last tuple from left relation
+//    unsigned lastLeftTupleLength = 0;   // length of the last left tuple that is not loaded into leftBuffer
+    byte rightTuple[PAGE_SIZE];         // current tuple from right relation
 };
 
 class Aggregate : public Iterator {
@@ -277,7 +349,7 @@ public:
     Aggregate(Iterator *input,          // Iterator of input R
               Attribute aggAttr,        // The attribute over which we are computing an aggregate
               AggregateOp op            // Aggregate operation
-    ) {};
+    ) {}
 
     // Optional for everyone: 5 extra-credit points
     // Group-based hash aggregation
@@ -285,16 +357,33 @@ public:
               Attribute aggAttr,           // The attribute over which we are computing an aggregate
               Attribute groupAttr,         // The attribute over which we are grouping the tuples
               AggregateOp op              // Aggregate operation
-    ) {};
+    ) {}
 
-    ~Aggregate() {};
+    ~Aggregate() {}
 
-    RC getNextTuple(void *data) { return QE_EOF; };
+    RC getNextTuple(void *data) { return QE_EOF; }
 
     // Please name the output attribute as aggregateOp(aggAttr)
     // E.g. Relation=rel, attribute=attr, aggregateOp=MAX
     // output attrname = "MAX(rel.attr)"
-    void getAttributes(vector<Attribute> &attrs) const {};
+    void getAttributes(vector<Attribute> &attrs) const {}
 };
+
+unsigned computeTupleLength(const vector<Attribute> &attrs, const void *tuple);
+
+unsigned getAttributeOffset(const vector<Attribute> &attrs, const byte *tuple, unsigned attrNo);
+
+void clearHashTable(void *hashTable, AttrType type);
+
+void insertToHashTable(void *hashTable, AttrType type, const byte *key, unsigned value);
+
+vector<unsigned> getOffsetsFromHashTable(void *hashTable, AttrType type, const byte *key);
+
+void joinTuples(const vector<Attribute> &leftAttrs, const byte *leftTuple,
+                const vector<Attribute> &rightAttrs, const byte *rightTuple,
+                void *data);
+
+// used in Grace Hash Join
+unsigned getPartitionNum(AttrType type, const byte *key, unsigned numOfPartitions);
 
 #endif

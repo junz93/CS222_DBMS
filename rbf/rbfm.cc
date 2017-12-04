@@ -150,7 +150,7 @@ RC RecordBasedFileManager::readRecord(FileHandle &fileHandle,
 RC RecordBasedFileManager::printRecord(const vector<Attribute> &recordDescriptor, const void *data)
 {
     const byte *pFlag = (const byte*) data;
-    const byte *pData = pFlag + getBytesOfNullFlags(recordDescriptor.size());
+    const byte *pData = pFlag + getBytesOfNullIndicator(recordDescriptor.size());
     uint8_t flagMask = 0x80;     // cannot use (signed) byte
     for (const Attribute &attr : recordDescriptor) {
         cout << attr.name << ": ";
@@ -472,9 +472,9 @@ RC RecordBasedFileManager::scan(FileHandle &fileHandle,
 unsigned RecordBasedFileManager::computeRecordLength(const vector<Attribute> &recordDescriptor, const void *data)
 {
     auto numOfFields = recordDescriptor.size();
-    unsigned recordLength = getBytesOfNullFlags(numOfFields) + numOfFields*FIELD_OFFSET_SZ;
+    unsigned recordLength = getBytesOfNullIndicator(numOfFields) + numOfFields*FIELD_OFFSET_SZ;
     const byte *pFlag = (const byte*) data;         // pointer to null flags
-    const byte *pData = pFlag + getBytesOfNullFlags(numOfFields);  // pointer to actual field data
+    const byte *pData = pFlag + getBytesOfNullIndicator(numOfFields);  // pointer to actual field data
     uint8_t flagMask = 0x80;     // cannot use (signed) byte
 
     // compute the length of the new record
@@ -582,16 +582,16 @@ void RecordBasedFileManager::writeRecord(byte *page,
     auto numOfFields = recordDescriptor.size();
 
     // copy the null flags from record data in memory to page
-    memcpy(page + recordOffset, data, getBytesOfNullFlags(numOfFields));
+    memcpy(page + recordOffset, data, getBytesOfNullIndicator(numOfFields));
 
     // pointers to page data read from disk
-    byte *pOffset = page + recordOffset + getBytesOfNullFlags(numOfFields);   // pointer to field offset
+    byte *pOffset = page + recordOffset + getBytesOfNullIndicator(numOfFields);   // pointer to field offset
     byte *pField = pOffset + numOfFields*FIELD_OFFSET_SZ;     // pointer to actual field data
     unsigned fieldBegin = 0;    // begin offset of a field (relative to the start position of actual field data)
 
     // pointers to record data in memory
     const byte *pFlag = (const byte*) data;
-    const byte *pData = pFlag + getBytesOfNullFlags(numOfFields);
+    const byte *pData = pFlag + getBytesOfNullIndicator(numOfFields);
     uint8_t flagMask = 0x80;
 
     for (const Attribute &attr : recordDescriptor) {
@@ -633,16 +633,16 @@ void RecordBasedFileManager::readRecord(const byte *page,
     auto numOfFields = recordDescriptor.size();
 
     // copy the null flags from page to record data returned to caller
-    memcpy(data, page + recordOffset, getBytesOfNullFlags(numOfFields));
+    memcpy(data, page + recordOffset, getBytesOfNullIndicator(numOfFields));
 
     // pointers to page data
-    const byte *pOffset = page + recordOffset + getBytesOfNullFlags(numOfFields);
+    const byte *pOffset = page + recordOffset + getBytesOfNullIndicator(numOfFields);
     const byte *pField = pOffset + numOfFields * FIELD_OFFSET_SZ;
     unsigned fieldBegin = 0;    // begin offset of a field (relative to the start position of fields)
 
     // pointers to record data that are returned to caller
     byte *pFlag = (byte*) data;
-    byte *pData = pFlag + getBytesOfNullFlags(numOfFields);
+    byte *pData = pFlag + getBytesOfNullIndicator(numOfFields);
     uint8_t flagMask = 0x80;
 
     for (const auto &attr : recordDescriptor) {
@@ -750,10 +750,10 @@ RC RBFM_ScanIterator::getNextRecord(RID &rid, void *data)
                 if (!rbfm->readField(page, recordOffset, conditionAttrNum, numOfFields, conditionAttr, field.get())) {
                     field.reset();
                 }
-                compareResult = compareName(conditionAttr.type, compOp, field.get(), value);
+                compareResult = compareAttribute(conditionAttr.type, compOp, field.get(), value);
             }
             if (compareResult) {
-                transmuteRecord(recordOffset, data);
+                readRecord(recordOffset, data);
                 rid.pageNum = pageNum;
                 rid.slotNum = slotNum++;
                 return SUCCESS;
@@ -774,45 +774,12 @@ RC RBFM_ScanIterator::close()
     return SUCCESS;
 }
 
-bool RBFM_ScanIterator::compareName(AttrType type, CompOp compOp, const void *op1, const void *op2)
+void RBFM_ScanIterator::readRecord(unsigned recordOffset, void *data)
 {
-    if (compOp == NO_OP) {
-        return true;
-    }
-    if (op1 == nullptr && op2 == nullptr) {
-        return compOp == EQ_OP;
-    }
-    if (op1 == nullptr || op2 == nullptr) {
-        return compOp == NE_OP;
-    }
-
-    switch (type) {
-        case TypeInt: {
-            int32_t i1 = *((const int32_t*) op1);
-            int32_t i2 = *((const int32_t*) op2);
-            return compare(compOp, i1, i2);
-        }
-        case TypeReal: {
-            float r1 = *((const float *) op1);
-            float r2 = *((const float *) op2);
-            return compare(compOp, r1, r2);
-        }
-        case TypeVarChar: {
-            uint32_t len1 = *((const uint32_t*) op1);
-            uint32_t len2 = *((const uint32_t*) op2);
-            string vc1((const char*) op1 + 4, len1);
-            string vc2((const char*) op2 + 4, len2);
-            return compare(compOp, vc1, vc2);
-        }
-    }
-}
-
-void RBFM_ScanIterator::transmuteRecord(unsigned recordOffset, void *data)
-{
-    memset(data, 0, rbfm->getBytesOfNullFlags(attrNums.size()));
+    memset(data, 0, getBytesOfNullIndicator(attrNums.size()));
 
     byte *pFlag = (byte*) data;
-    byte *pData = pFlag + rbfm->getBytesOfNullFlags(attrNums.size());
+    byte *pData = pFlag + getBytesOfNullIndicator(attrNums.size());
     uint8_t flagMask = 0x80;
     auto numOfFields = recordDescriptor.size();
     for (auto attrNum : attrNums) {
@@ -840,4 +807,37 @@ int compare(RID o1, RID o2)
     if (o1.slotNum < o2.slotNum) return -1;
     if (o1.slotNum > o2.slotNum) return 1;
     return 0;
+}
+
+bool compareAttribute(AttrType type, CompOp compOp, const void *op1, const void *op2)
+{
+    if (compOp == NO_OP) {
+        return true;
+    }
+    if (op1 == nullptr && op2 == nullptr) {
+        return false;
+    }
+    if (op1 == nullptr || op2 == nullptr) {
+        return compOp == NE_OP;
+    }
+
+    switch (type) {
+        case TypeInt: {
+            int32_t i1 = *((const int32_t*) op1);
+            int32_t i2 = *((const int32_t*) op2);
+            return compare(compOp, i1, i2);
+        }
+        case TypeReal: {
+            float r1 = *((const float *) op1);
+            float r2 = *((const float *) op2);
+            return compare(compOp, r1, r2);
+        }
+        case TypeVarChar: {
+            uint32_t len1 = *((const uint32_t*) op1);
+            uint32_t len2 = *((const uint32_t*) op2);
+            string vc1((const char*) op1 + 4, len1);
+            string vc2((const char*) op2 + 4, len2);
+            return compare(compOp, vc1, vc2);
+        }
+    }
 }

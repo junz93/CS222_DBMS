@@ -264,7 +264,7 @@ unsigned IndexManager::printKey(const Attribute &attribute, const void *key) con
             cout << *((const float *) key);
             return attribute.length;
         case TypeVarChar:
-            unsigned length = *((uint32_t *) key);
+            uint32_t length = *((uint32_t *) key);
             cout << string((const char *) key + 4, length);
             return length + 4;
     }
@@ -543,7 +543,7 @@ RC IX_ScanIterator::getNextEntry(RID &rid, void *key) {
 }
 
 RC IX_ScanIterator::close() {
-    //delete ixFileHandle;
+    delete ixFileHandle;
     ixFileHandle = nullptr;
     return SUCCESS;
 }

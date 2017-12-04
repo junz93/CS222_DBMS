@@ -23,6 +23,12 @@ const unsigned RID_SZ = PAGE_NUM_SZ + SLOT_NUM_SZ;
 
 const unsigned MAX_NUM_OF_ENTRIES = (PAGE_SIZE - PAGE_NUM_SZ) / (PAGE_NUM_SZ + FREE_SPACE_SZ);  // max number of entries in a directory page
 
+// Calculate actual bytes for nulls-indicator for the given field counts
+inline
+unsigned getBytesOfNullIndicator(unsigned numOfFields) {
+    return ceil((double) numOfFields / CHAR_BIT);
+}
+
 // Record ID
 typedef struct
 {
@@ -56,6 +62,28 @@ typedef enum
     NO_OP       // no condition
 } CompOp;
 
+template<typename T>
+bool compare(CompOp compOp, T op1, T op2)
+{
+    switch (compOp) {
+        case NO_OP:
+            return true;
+        case EQ_OP:
+            return op1 == op2;
+        case LT_OP:
+            return op1 < op2;
+        case LE_OP:
+            return op1 <= op2;
+        case GT_OP:
+            return op1 > op2;
+        case GE_OP:
+            return op1 >= op2;
+        case NE_OP:
+            return op1 != op2;
+    }
+}
+
+bool compareAttribute(AttrType type, CompOp compOp, const void *op1, const void *op2);
 
 /********************************************************************************
 The scan iterator is NOT required to be implemented for the part 1 of the project 
@@ -111,9 +139,9 @@ private:
         return pageNum % (MAX_NUM_OF_ENTRIES + 1) == 0;
     }
 
-    bool compareName(AttrType type, CompOp compOp, const void *op1, const void *op2);
 
-    void transmuteRecord(unsigned recordOffset, void *data);
+
+    void readRecord(unsigned recordOffset, void *data);
 };
 
 
@@ -214,8 +242,6 @@ private:
 
     void setRecordLength(byte *page, SlotNum slotNum, unsigned recordLength);
 
-    unsigned getBytesOfNullFlags(unsigned numOfFields);
-
     // return the begin offset relative to the begin of the record
     unsigned getFieldBeginOffset(const byte *page, unsigned recordOffset, unsigned fieldNum, unsigned numOfFields);
 
@@ -283,18 +309,12 @@ void RecordBasedFileManager::setRecordLength(byte *page, SlotNum slotNum, unsign
 }
 
 inline
-unsigned RecordBasedFileManager::getBytesOfNullFlags(unsigned numOfFields)
-{
-    return ceil(numOfFields / 8.0);
-}
-
-inline
 unsigned RecordBasedFileManager::getFieldBeginOffset(const byte *page, unsigned recordOffset, unsigned fieldNum,
                                                      unsigned numOfFields)
 {
     assert(fieldNum < numOfFields);
 
-    unsigned preOffset = getBytesOfNullFlags(numOfFields);
+    unsigned preOffset = getBytesOfNullIndicator(numOfFields);
     if (fieldNum == 0) {
         return preOffset + numOfFields * FIELD_OFFSET_SZ;
     }
@@ -308,30 +328,9 @@ unsigned RecordBasedFileManager::getFieldEndOffset(const byte *page, unsigned re
 {
     assert(fieldNum < numOfFields);
 
-    unsigned preOffset = getBytesOfNullFlags(numOfFields);
+    unsigned preOffset = getBytesOfNullIndicator(numOfFields);
     unsigned endOffset = *((uint16_t*) (page + recordOffset + preOffset + fieldNum*FIELD_OFFSET_SZ));
     return preOffset + numOfFields * FIELD_OFFSET_SZ + endOffset;
-}
-
-template<typename T>
-inline bool compare(CompOp compOp, T op1, T op2)
-{
-    switch (compOp) {
-        case NO_OP:
-            return true;
-        case EQ_OP:
-            return op1 == op2;
-        case LT_OP:
-            return op1 < op2;
-        case LE_OP:
-            return op1 <= op2;
-        case GT_OP:
-            return op1 > op2;
-        case GE_OP:
-            return op1 >= op2;
-        case NE_OP:
-            return op1 != op2;
-    }
 }
 
 #endif

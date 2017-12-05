@@ -323,6 +323,7 @@ public:
     void getAttributes(vector<Attribute> &attrs) const;
 
 private:
+    static int relNo;
     RecordBasedFileManager *rbfm = RecordBasedFileManager::instance();
 
     Iterator *leftIn;
@@ -331,8 +332,10 @@ private:
     unsigned numOfPartitions;
     unsigned curPartitionNum = 0;
 
-    string leftRelName;        // name of the left relation
-    string rightRelName;       // name of the right relation
+//    string leftRelName;        // name of the left relation
+//    string rightRelName;       // name of the right relation
+    int leftRelNo = relNo++;
+    int rightRelNo = relNo++;
     vector<Attribute> leftAttrs;
     vector<Attribute> rightAttrs;
     vector<string> leftAttrNames;

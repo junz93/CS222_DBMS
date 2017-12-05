@@ -45,21 +45,31 @@ void Filter::getAttributes(vector<Attribute> &attrs) const {
 
 RC Filter::getLhsValue(const vector<Attribute> attrs, const string attrName, const void *data, Value &value) {
     int offset = getBytesOfNullIndicator(attrs.size());
+    const byte *pFlag = (const byte*) data;
+    uint8_t flagMask = 0x80;
     for (Attribute attr : attrs) {
         if (attr.name == attrName) {
             value.type = attr.type;
             value.data = (char *) data + offset;
             return SUCCESS;
         } else {
-            switch (attr.type) {
-                case TypeInt:
-                case TypeReal:
-                    offset += 4;
-                    break;
-                case TypeVarChar:
-                    uint32_t length = *((uint32_t *) ((char *) data + offset));
-                    offset += (4 + length);
-                    break;
+            if (!(*pFlag & flagMask)) {
+                switch (attr.type) {
+                    case TypeInt:
+                    case TypeReal:
+                        offset += 4;
+                        break;
+                    case TypeVarChar:
+                        uint32_t length = *((uint32_t *) ((char *) data + offset));
+                        offset += (4 + length);
+                        break;
+                }
+            }
+            if (flagMask == 0x01) {
+                flagMask = 0x80;
+                ++pFlag;
+            } else {
+                flagMask = flagMask >> 1;
             }
         }
     }
@@ -128,7 +138,7 @@ RC Project::getNextTuple(void *data) {
 };
 
 void Project::getAttributes(vector<Attribute> &attrs) const {
-    attrs.clear();
+//    attrs.clear();
     attrs = this->attrs;
 };
 
@@ -367,6 +377,8 @@ void INLJoin::getAttributes(vector<Attribute> &attrs) const {
     attrs = this->attrs;
 }
 
+int GHJoin::relNo = 0;
+
 GHJoin::GHJoin(Iterator *leftIn, Iterator *rightIn, const Condition &condition, const unsigned numPartitions)
         : leftIn(leftIn), rightIn(rightIn), condition(condition), numOfPartitions(numPartitions) {
     assert(condition.op == EQ_OP);  // should be equijoin
@@ -398,16 +410,14 @@ GHJoin::GHJoin(Iterator *leftIn, Iterator *rightIn, const Condition &condition, 
         rightAttrNames.push_back(attr.name);
     }
 
-    leftRelName = leftAttrs[0].name.substr(0, leftAttrs[0].name.find_first_of('.'));
-    rightRelName = rightAttrs[0].name.substr(0, rightAttrs[0].name.find_first_of('.'));
     FileHandle *leftFileHandles = new FileHandle[numOfPartitions];
     FileHandle *rightFileHandles = new FileHandle[numOfPartitions];
     for (unsigned i = 0; i < numOfPartitions; ++i) {
-        string suffix = to_string(i);
-        rbfm->createFile("left_join_" + leftRelName + suffix);
-        rbfm->openFile("left_join_" + leftRelName + suffix, leftFileHandles[i]);
-        rbfm->createFile("right_join_" + rightRelName + suffix);
-        rbfm->openFile("right_join_" + rightRelName + suffix, rightFileHandles[i]);
+        string suffix = "_" + to_string(i);
+        rbfm->createFile("left_join_" + to_string(leftRelNo) + suffix);
+        rbfm->openFile("left_join_" + to_string(leftRelNo) + suffix, leftFileHandles[i]);
+        rbfm->createFile("right_join_" + to_string(rightRelNo) + suffix);
+        rbfm->openFile("right_join_" + to_string(rightRelNo) + suffix, rightFileHandles[i]);
     }
     byte tuple[PAGE_SIZE];
     while (true) {
@@ -449,9 +459,9 @@ GHJoin::GHJoin(Iterator *leftIn, Iterator *rightIn, const Condition &condition, 
 
 GHJoin::~GHJoin() {
     for (unsigned i = 0; i < numOfPartitions; ++i) {
-        string suffix = to_string(i);
-        rbfm->destroyFile("left_join_" + leftRelName + suffix);
-        rbfm->destroyFile("right_join_" + rightRelName + suffix);
+        string suffix = "_" +to_string(i);
+        rbfm->destroyFile("left_join_" + to_string(leftRelNo) + suffix);
+        rbfm->destroyFile("right_join_" + to_string(rightRelNo) + suffix);
     }
     switch (attrType) {
         case TypeInt:
@@ -470,7 +480,7 @@ RC GHJoin::getNextTuple(void *data) {
     for (; curPartitionNum < numOfPartitions; ++curPartitionNum) {
         if (leftBufferSize == 0) {
             FileHandle leftFileHandle;
-            rbfm->openFile("left_join_" + leftRelName + to_string(curPartitionNum), leftFileHandle);
+            rbfm->openFile("left_join_" + to_string(leftRelNo) + "_" + to_string(curPartitionNum), leftFileHandle);
             rbfm->scan(leftFileHandle, leftAttrs, "", NO_OP, nullptr, leftAttrNames, leftIterator);
             unsigned numOfLeftPages = leftFileHandle.getNumberOfPages();
             if (numOfLeftPages == 0) {
@@ -480,6 +490,7 @@ RC GHJoin::getNextTuple(void *data) {
             RID rid;
             while (leftIterator.getNextRecord(rid, leftBuffer + leftBufferSize) != RBFM_EOF) {
                 unsigned leftTupleLength = computeTupleLength(leftAttrs, leftBuffer + leftBufferSize);
+                assert(leftBufferSize + leftTupleLength <= numOfLeftPages * PAGE_SIZE);
                 unsigned attrOffset = getAttributeOffset(leftAttrs, leftBuffer + leftBufferSize, leftAttrNo);
                 insertToHashTable(hashTable, attrType, leftBuffer + leftBufferSize + attrOffset, leftBufferSize);
                 leftBufferSize += leftTupleLength;
@@ -491,7 +502,7 @@ RC GHJoin::getNextTuple(void *data) {
                 continue;
             }
             FileHandle rightFileHandle;
-            rbfm->openFile("right_join_" + rightRelName + to_string(curPartitionNum), rightFileHandle);
+            rbfm->openFile("right_join_" + to_string(rightRelNo) + "_" + to_string(curPartitionNum), rightFileHandle);
             rbfm->scan(rightFileHandle, rightAttrs, "", NO_OP, nullptr, rightAttrNames, rightIterator);
         }
         RID rid;

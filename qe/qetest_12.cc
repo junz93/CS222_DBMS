@@ -123,6 +123,9 @@ RC testCase_12() {
 	}
 
 clean_up:
+	delete ghJoin;
+	delete leftIn;
+	delete rightIn;
 	free(data);
 	return rc;
 }

@@ -151,6 +151,9 @@ private:
     void initializeTablesTable(); // insert essential tuples to "Tables" table as an initialization of catalog
     void initializeColumnsTable(); // insert essential tuples to "Columns" table as an initialization of catalog
 
+    /** private functions called by createIndex(...) **/
+    RC populateIndex(const string tableName, const string attributeName);
+
     /** private functions called by insertTuple(...) **/
     void prepareRecordDescriptorForTablesTable(vector<Attribute> &recordDescriptor);
 

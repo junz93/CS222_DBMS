@@ -197,6 +197,7 @@ private:
     unsigned attrNo;
 
     RC getLhsValue(const vector<Attribute> attrs, const string attrName, const void *data, Value &value);
+
     bool isQualifiedTuple(const Value lhsValue, const CompOp op, const Value rhsValue);
 };
 
@@ -209,6 +210,7 @@ public:
         prepareNameAttributeMap(originalAttrs);
         prepareAttrs(attrNames);
     };
+
     ~Project() {};
 
     RC getNextTuple(void *data);
@@ -221,23 +223,32 @@ private:
     vector<Attribute> attrs;
     vector<Attribute> originalAttrs;
     unordered_map<string, Attribute> nameAttributeMap;
+
     //const vector<string> &targetAttrNames;
     void prepareNameAttributeMap(const vector<Attribute> attrs);
+
     void prepareAttrs(const vector<string> attrNames);
+
+    void prepareNullsIndicator(void *data);
+
+    bool
+    getAttributeData(const void *data, const vector<Attribute> attrs, const Attribute targetAttr, void *attributeData);
 };
 
 class BNLJoin : public Iterator {
 // Block nested-loop join operator
 public:
     BNLJoin(Iterator *leftIn,            // Iterator of input R
-           TableScan *rightIn,           // TableScan Iterator of input S
-           const Condition &condition,   // Join condition
-           const unsigned numPages       // # of pages that can be loaded into memory,
-                                         //   i.e., memory block size (decided by the optimizer)
+            TableScan *rightIn,           // TableScan Iterator of input S
+            const Condition &condition,   // Join condition
+            const unsigned numPages       // # of pages that can be loaded into memory,
+            //   i.e., memory block size (decided by the optimizer)
     );
+
     ~BNLJoin();
 
     RC getNextTuple(void *data);
+
     // For attribute in vector<Attribute>, name it as rel.attr
     void getAttributes(vector<Attribute> &attrs) const;
 
@@ -268,12 +279,14 @@ class INLJoin : public Iterator {
 // Index nested-loop join operator
 public:
     INLJoin(Iterator *leftIn,           // Iterator of input R
-           IndexScan *rightIn,          // IndexScan Iterator of input S
-           const Condition &condition   // Join condition
+            IndexScan *rightIn,          // IndexScan Iterator of input S
+            const Condition &condition   // Join condition
     );
+
     ~INLJoin();
 
     RC getNextTuple(void *data);
+
     // For attribute in vector<Attribute>, name it as rel.attr
     void getAttributes(vector<Attribute> &attrs) const;
 
@@ -296,16 +309,18 @@ private:
 class GHJoin : public Iterator {
     // Grace hash join operator
 public:
-  GHJoin(Iterator *leftIn,               // Iterator of input R
-        Iterator *rightIn,               // Iterator of input S
-        const Condition &condition,      // Join condition (CompOp is always EQ)
-        const unsigned numPartitions     // # of partitions for each relation (decided by the optimizer)
-  );
-  ~GHJoin();
+    GHJoin(Iterator *leftIn,               // Iterator of input R
+           Iterator *rightIn,               // Iterator of input S
+           const Condition &condition,      // Join condition (CompOp is always EQ)
+           const unsigned numPartitions     // # of partitions for each relation (decided by the optimizer)
+    );
 
-  RC getNextTuple(void *data);
-  // For attribute in vector<Attribute>, name it as rel.attr
-  void getAttributes(vector<Attribute> &attrs) const;
+    ~GHJoin();
+
+    RC getNextTuple(void *data);
+
+    // For attribute in vector<Attribute>, name it as rel.attr
+    void getAttributes(vector<Attribute> &attrs) const;
 
 private:
     RecordBasedFileManager *rbfm = RecordBasedFileManager::instance();
@@ -385,5 +400,12 @@ void joinTuples(const vector<Attribute> &leftAttrs, const byte *leftTuple,
 
 // used in Grace Hash Join
 unsigned getPartitionNum(AttrType type, const byte *key, unsigned numOfPartitions);
+
+
+inline bool isAttributeNull(const int attributeIndex, const void *data) {
+    int nullOffset = attributeIndex / 8;
+    uint8_t flag = 0x80 >> (attributeIndex % 8);
+    return *((uint8_t *) data + nullOffset) & flag;
+}
 
 #endif

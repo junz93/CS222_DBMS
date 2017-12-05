@@ -2,6 +2,7 @@
 #include <cstring>
 #include <unordered_map>
 #include "qe.h"
+
 using namespace std;
 
 /**  Filter Related Functions  **/
@@ -20,15 +21,6 @@ Filter::Filter(Iterator *input, const Condition &condition) : iter(input), condi
 }
 
 RC Filter::getNextTuple(void *data) {
-//    while (iter->getNextTuple(data) != QE_EOF) {
-//        unsigned attrOffset = getAttributeOffset(attrs, (byte*) data, attrNo);
-//        if (compareAttribute(attrs[attrNo].type, condition.op, (byte*) data + attrOffset, condition.rhsValue.data)) {
-//            return SUCCESS;
-//        }
-//    }
-//
-//    return QE_EOF;
-
     Value lhsValue;
 
     if (condition.bRhsIsAttr) {
@@ -39,11 +31,9 @@ RC Filter::getNextTuple(void *data) {
         if (iter->getNextTuple(data) == QE_EOF) {
             return QE_EOF;
         }
-//        RC rc = getLhsValue(attrs, condition.lhsAttr, data, lhsValue);
-//        if (rc == FAIL) {
-//            return QE_EOF;
-//        }
-        getLhsValue(attrs, condition.lhsAttr, data, lhsValue);
+        if (getLhsValue(attrs, condition.lhsAttr, data, lhsValue) == FAIL) {
+            return FAIL;
+        }
     } while (!isQualifiedTuple(lhsValue, condition.op, condition.rhsValue));
 
     return SUCCESS;
@@ -58,16 +48,6 @@ RC Filter::getLhsValue(const vector<Attribute> attrs, const string attrName, con
     for (Attribute attr : attrs) {
         if (attr.name == attrName) {
             value.type = attr.type;
-//            switch (attr.type) {
-//                case TypeInt:
-//                case TypeReal:
-//                    memcpy(value.data, (char *) data + offset, 4);
-//                    break;
-//                case TypeVarChar:
-//                    uint32_t length = *((uint32_t *) ((char *) data + offset));
-//                    memcpy(value.data, (char *) data + offset, 4 + length);
-//                    break;
-//            }
             value.data = (char *) data + offset;
             return SUCCESS;
         } else {
@@ -115,9 +95,35 @@ bool Filter::isQualifiedTuple(const Value lhsValue, const CompOp op, const Value
 
 RC Project::getNextTuple(void *data) {
     void *originalData = malloc(PAGE_SIZE);
+    void *attributeData = malloc(PAGE_SIZE);
     if (iter->getNextTuple(originalData) == QE_EOF) { return FAIL; }
 
+    prepareNullsIndicator(data);
+    int offset = getBytesOfNullIndicator(attrs.size());
+    for (int i = 0; i < attrs.size(); i++) {
+        Attribute targetAttr = attrs[i];
+        if (getAttributeData(originalData, originalAttrs, targetAttr, attributeData) == false) { // attribute is null
+            int nullOffset = i / 8;
+            uint8_t flag = 0x80 >> (i % 8);
+            *((uint8_t *) data + nullOffset) = *((uint8_t *) data + nullOffset) | flag;
+        } else {
+            switch (targetAttr.type) {
+                case TypeInt:
+                case TypeReal:
+                    memcpy((byte *) data + offset, attributeData, 4);
+                    offset += 4;
+                    break;
+                case TypeVarChar:
+                    int lenVarChar = *((int *) attributeData);
+                    memcpy((byte *) data + offset, attributeData, 4 + lenVarChar);
+                    offset += (4 + lenVarChar);
+                    break;
+            }
+        }
+    }
+
     free(originalData);
+    free(attributeData);
     return SUCCESS;
 };
 
@@ -142,6 +148,48 @@ void Project::prepareAttrs(const vector<string> attrNames) {
             attrs.push_back(nameAttributeMap[attrName]);
         }
     }
+}
+
+void Project::prepareNullsIndicator(void *data) {
+    int length = getBytesOfNullIndicator(attrs.size());
+    memset(data, 0, length);
+}
+
+bool Project::getAttributeData(const void *data, const vector<Attribute> attrs, const Attribute targetAttr,
+                               void *attributeData) {
+    int offset = getBytesOfNullIndicator(attrs.size());
+    for (int i = 0; i < attrs.size(); i++) {
+        Attribute currentAttribute = attrs[i];
+        if (currentAttribute.name == targetAttr.name) {
+            if (isAttributeNull(i, data)) {
+                return false;
+            }
+            switch (currentAttribute.type) {
+                case TypeInt:
+                case TypeReal:
+                    memcpy(attributeData, (char *) data + offset, 4);
+                    break;
+                case TypeVarChar:
+                    uint32_t length = *((uint32_t *) ((char *) data + offset));
+                    memcpy(attributeData, (char *) data + offset, 4 + length);
+                    break;
+            }
+            return true;
+        } else {
+            switch (currentAttribute.type) {
+                case TypeInt:
+                case TypeReal:
+                    offset += 4;
+                    break;
+                case TypeVarChar:
+                    uint32_t length = *((uint32_t *) ((char *) data + offset));
+                    offset += (4 + length);
+                    break;
+            }
+        }
+    }
+    cerr << "Didn't find corresponding attribute, which should be impossible!" << endl;
+    return false;
 }
 
 /**  Join Related Functions  **/
@@ -189,13 +237,13 @@ BNLJoin::~BNLJoin() {
     delete[] leftBuffer;
     switch (attrType) {
         case TypeInt:
-            delete (unordered_map<int32_t, vector<unsigned>>*) hashTable;
+            delete (unordered_map<int32_t, vector<unsigned>> *) hashTable;
             break;
         case TypeReal:
-            delete (unordered_map<float, vector<unsigned>>*) hashTable;
+            delete (unordered_map<float, vector<unsigned>> *) hashTable;
             break;
         case TypeVarChar:
-            delete (unordered_map<string, vector<unsigned>>*) hashTable;
+            delete (unordered_map<string, vector<unsigned>> *) hashTable;
             break;
     }
 }
@@ -404,13 +452,13 @@ GHJoin::~GHJoin() {
     }
     switch (attrType) {
         case TypeInt:
-            delete (unordered_map<int32_t, vector<unsigned>>*) hashTable;
+            delete (unordered_map<int32_t, vector<unsigned>> *) hashTable;
             break;
         case TypeReal:
-            delete (unordered_map<float, vector<unsigned>>*) hashTable;
+            delete (unordered_map<float, vector<unsigned>> *) hashTable;
             break;
         case TypeVarChar:
-            delete (unordered_map<string, vector<unsigned>>*) hashTable;
+            delete (unordered_map<string, vector<unsigned>> *) hashTable;
             break;
     }
 }
@@ -435,7 +483,8 @@ RC GHJoin::getNextTuple(void *data) {
                 delete[] leftBuffer;
                 continue;
             }
-            rbfm->scan(rightFileHandles[curPartitionNum], rightAttrs, "", NO_OP, nullptr, rightAttrNames, rightIterator);
+            rbfm->scan(rightFileHandles[curPartitionNum], rightAttrs, "", NO_OP, nullptr, rightAttrNames,
+                       rightIterator);
         }
         RID rid;
         while (true) {
@@ -467,11 +516,10 @@ void GHJoin::getAttributes(vector<Attribute> &attrs) const {
     attrs = this->attrs;
 }
 
-unsigned computeTupleLength(const vector<Attribute> &attrs, const void *tuple)
-{
+unsigned computeTupleLength(const vector<Attribute> &attrs, const void *tuple) {
     auto numOfFields = attrs.size();
     unsigned tupleLength = getBytesOfNullIndicator(numOfFields);
-    const byte *pFlag = (const byte*) tuple;         // pointer to null flags
+    const byte *pFlag = (const byte *) tuple;         // pointer to null flags
     const byte *pData = pFlag + getBytesOfNullIndicator(numOfFields);  // pointer to actual field data
     uint8_t flagMask = 0x80;     // cannot use (signed) byte
 
@@ -484,7 +532,7 @@ unsigned computeTupleLength(const vector<Attribute> &attrs, const void *tuple)
                     pData += attr.length;
                     break;
                 case TypeVarChar:
-                    uint32_t length = *((const uint32_t*) pData);
+                    uint32_t length = *((const uint32_t *) pData);
                     tupleLength += 4 + length;
                     pData += 4 + length;
                     break;
@@ -502,8 +550,7 @@ unsigned computeTupleLength(const vector<Attribute> &attrs, const void *tuple)
     return tupleLength;
 }
 
-unsigned getAttributeOffset(const vector<Attribute> &attrs, const byte *tuple, unsigned attrNo)
-{
+unsigned getAttributeOffset(const vector<Attribute> &attrs, const byte *tuple, unsigned attrNo) {
     const byte *pFlag = tuple;
     unsigned attrOffset = getBytesOfNullIndicator(attrs.size());
     uint8_t flagMask = 0x80;
@@ -515,7 +562,7 @@ unsigned getAttributeOffset(const vector<Attribute> &attrs, const byte *tuple, u
                     attrOffset += attrs[i].length;
                     break;
                 case TypeVarChar:
-                    uint32_t length = *((const uint32_t*) (tuple + attrOffset));
+                    uint32_t length = *((const uint32_t *) (tuple + attrOffset));
                     attrOffset += 4 + length;
                     break;
             }
@@ -531,63 +578,60 @@ unsigned getAttributeOffset(const vector<Attribute> &attrs, const byte *tuple, u
     return attrOffset;
 }
 
-void clearHashTable(void *hashTable, AttrType type)
-{
+void clearHashTable(void *hashTable, AttrType type) {
     switch (type) {
         case TypeInt: {
-            auto &intHashTable = *(unordered_map<int32_t, vector<unsigned>>*) hashTable;
+            auto &intHashTable = *(unordered_map<int32_t, vector<unsigned>> *) hashTable;
             intHashTable.clear();
             break;
         }
         case TypeReal: {
-            auto &floatHashTable = *(unordered_map<float, vector<unsigned>>*) hashTable;
+            auto &floatHashTable = *(unordered_map<float, vector<unsigned>> *) hashTable;
             floatHashTable.clear();
             break;
         }
         case TypeVarChar: {
-            auto &strHashTable = *(unordered_map<string, vector<unsigned>>*) hashTable;
+            auto &strHashTable = *(unordered_map<string, vector<unsigned>> *) hashTable;
             strHashTable.clear();
             break;
         }
     }
 }
 
-void insertToHashTable(void *hashTable, AttrType type, const byte *key, unsigned value)
-{
+void insertToHashTable(void *hashTable, AttrType type, const byte *key, unsigned value) {
     switch (type) {
         case TypeInt: {
-            auto &intHashTable = *(unordered_map<int32_t, vector<unsigned>>*) hashTable;
-            intHashTable[*(const int32_t*) key].push_back(value);
+            auto &intHashTable = *(unordered_map<int32_t, vector<unsigned>> *) hashTable;
+            intHashTable[*(const int32_t *) key].push_back(value);
             break;
         }
         case TypeReal: {
-            auto &floatHashTable = *(unordered_map<float, vector<unsigned>>*) hashTable;
-            floatHashTable[*(const float*) key].push_back(value);
+            auto &floatHashTable = *(unordered_map<float, vector<unsigned>> *) hashTable;
+            floatHashTable[*(const float *) key].push_back(value);
             break;
         }
         case TypeVarChar: {
-            auto &strHashTable = *(unordered_map<string, vector<unsigned>>*) hashTable;
-            uint32_t length = *((const uint32_t*) key);
+            auto &strHashTable = *(unordered_map<string, vector<unsigned>> *) hashTable;
+            uint32_t length = *((const uint32_t *) key);
             strHashTable[string(key + 4, length)].push_back(value);
             break;
         }
     }
 }
 
-vector<unsigned> getOffsetsFromHashTable(void *hashTable, AttrType type, const byte *key)
-{
+vector<unsigned> getOffsetsFromHashTable(void *hashTable, AttrType type, const byte *key) {
     switch (type) {
         case TypeInt: {
-            auto &intHashTable = *(unordered_map<int32_t, vector<unsigned>>*) hashTable;
-            return intHashTable[*(const int32_t*) key];
+            auto &intHashTable = *(unordered_map<int32_t, vector<unsigned>> *) hashTable;
+            return intHashTable[*(const int32_t *) key];
         }
         case TypeReal: {
-            auto &floatHashTable = *(unordered_map<float, vector<unsigned>>*) hashTable;
-            return floatHashTable[*(const float*) key];
+            auto &floatHashTable = *(unordered_map<float, vector<unsigned>> *) hashTable;
+            return floatHashTable[*(const float *) key];
         }
         case TypeVarChar: {
-            auto &strHashTable = *(unordered_map<string, vector<unsigned>>*) hashTable;
-            uint32_t length = *((const uint32_t*) key);
+            auto &strHashTable = *(unordered_map<string, vector<unsigned>> *) hashTable;
+            uint32_t length = *((const uint32_t *) key);
             return strHashTable[string(key + 4, length)];
         }
     }
@@ -595,13 +639,12 @@ vector<unsigned> getOffsetsFromHashTable(void *hashTable, AttrType type, const b
 
 void joinTuples(const vector<Attribute> &leftAttrs, const byte *leftTuple,
                 const vector<Attribute> &rightAttrs, const byte *rightTuple,
-                void *data)
-{
+                void *data) {
     unsigned bytesOfNullFlagsLeft = getBytesOfNullIndicator(leftAttrs.size());
     unsigned bytesOfNullFlagsRight = getBytesOfNullIndicator(rightAttrs.size());
     memset(data, 0, bytesOfNullFlagsLeft + bytesOfNullFlagsRight);
     memcpy(data, leftTuple, bytesOfNullFlagsLeft);
-    byte *pFlag = (byte*) data + leftAttrs.size() / 8;
+    byte *pFlag = (byte *) data + leftAttrs.size() / 8;
     byte *pData = pFlag + bytesOfNullFlagsLeft + bytesOfNullFlagsRight;
     uint8_t flagMask = 0x80 >> (leftAttrs.size() % 8);
     const byte *pFlagRight = rightTuple;
@@ -634,20 +677,19 @@ void joinTuples(const vector<Attribute> &leftAttrs, const byte *leftTuple,
            rightTupleLength - bytesOfNullFlagsRight);
 }
 
-unsigned getPartitionNum(AttrType type, const byte *key, unsigned numOfPartitions)
-{
-    switch(type) {
+unsigned getPartitionNum(AttrType type, const byte *key, unsigned numOfPartitions) {
+    switch (type) {
         case TypeInt: {
             hash<int32_t> intHash;
-            return intHash(*(const int32_t*) (key)) % numOfPartitions;
+            return intHash(*(const int32_t *) (key)) % numOfPartitions;
         }
         case TypeReal: {
             hash<float> floatHash;
-            return floatHash(*(const float*) (key)) % numOfPartitions;
+            return floatHash(*(const float *) (key)) % numOfPartitions;
         }
         case TypeVarChar: {
             hash<string> strHash;
-            uint32_t length = *((const uint32_t*) (key));
+            uint32_t length = *((const uint32_t *) (key));
             return strHash(string(key + 4, length)) % numOfPartitions;
         }
     }

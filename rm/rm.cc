@@ -263,7 +263,44 @@ RC RelationManager::createIndex(const string &tableName, const string &attribute
     if (insertCatalogTuple(INDICES_TABLE, tuple, rid) == FAIL) {
         return FAIL;
     }
+    if (populateIndex(tableName, attributeName) == FAIL) {
+        return FAIL;
+    }
     free(tuple);
+
+    return SUCCESS;
+}
+
+RC RelationManager::populateIndex(const string tableName, const string attributeName) {
+    string indexName = tableName + "：" + attributeName;
+    RID rid;
+    RM_ScanIterator rm_scanIterator;
+    IXFileHandle ixFileHandle;
+    void *returnedData = malloc(PAGE_SIZE);
+    void *key = malloc(PAGE_SIZE);
+    Attribute attribute;
+    vector<string> attributeNames;
+    vector<Attribute> recordDescriptor;
+    if (getAttributes(tableName, recordDescriptor) == FAIL) { return FAIL; }
+    for (Attribute attr : recordDescriptor) {
+        attributeNames.push_back(attr.name);
+    }
+
+    if (ix->openFile(indexName, ixFileHandle) == FAIL) {
+        return FAIL;
+    }
+    if (scan(tableName, "", NO_OP, NULL, attributeNames, rm_scanIterator) == FAIL) {
+        return FAIL;
+    }
+    while (rm_scanIterator.getNextTuple(rid, returnedData) != RM_EOF) {
+        if (prepareKeyAndAttribute(recordDescriptor, returnedData, attributeName, key, attribute) == FAIL) {
+            return FAIL;
+        }
+        if (ix->insertEntry(ixFileHandle, attribute, key, rid) == FAIL) { return FAIL; }
+    }
+    free(returnedData);
+    free(key);
+    rm_scanIterator.close();
 
     return SUCCESS;
 }

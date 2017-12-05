@@ -102,6 +102,11 @@ bool Filter::isQualifiedTuple(const Value lhsValue, const CompOp op, const Value
 }
 
 /**  Project Related Functions  **/
+Project::Project(Iterator *input, const vector<string> &attrNames) : iter(input) {
+    input->getAttributes(originalAttrs);
+    prepareNameAttributeMap(originalAttrs);
+    prepareAttrs(attrNames);
+};
 
 RC Project::getNextTuple(void *data) {
     void *originalData = malloc(PAGE_SIZE);
@@ -536,6 +541,86 @@ void GHJoin::getAttributes(vector<Attribute> &attrs) const {
     attrs = this->attrs;
 }
 
+/** Aggregate Related Functions **/
+
+Aggregate::Aggregate(Iterator *input, Attribute aggAttr, AggregateOp op) : iter(input), aggAttr(aggAttr), aggOp(op) {
+    input->getAttributes(originalAttrs);
+    prepareUnGroupedAttrs();
+}
+
+Aggregate::Aggregate(Iterator *input, Attribute aggAttr, Attribute groupAttr, AggregateOp op) :
+        iter(input), aggAttr(aggAttr), groupAttr(groupAttr), aggOp(op) {
+    isGroupingRequired = true;
+    input->getAttributes(originalAttrs);
+    prepareGroupedAttrs();
+    switch (groupAttr.type) {
+        case TypeInt:
+            groupMap = new unordered_map<int32_t, vector<unsigned>>();
+            break;
+        case TypeReal:
+            groupMap = new unordered_map<float, vector<unsigned>>();
+            break;
+        case TypeVarChar:
+            groupMap = new unordered_map<string, vector<unsigned>>();
+            break;
+    }
+}
+
+RC Aggregate::getNextTuple(void *data) {
+    if (isGroupingRequired) {
+        return getNextGroupedTuple(data);
+    } else {
+        return getNextUngroupedTuple(data);
+    }
+}
+
+RC Aggregate::getNextUngroupedTuple(void *data) {
+
+}
+
+RC Aggregate::getNextGroupedTuple(void *data) {
+
+}
+
+void Aggregate::getAttributes(vector<Attribute> &attrs) const {
+    attrs.clear();
+    attrs = this->attrs;
+
+    if (isGroupingRequired) {
+        // For aggregate attribute in vector<Attribute>, name it as aggregateOp(aggAttr), e.g. attrname = "MAX(rel.attr)"
+        string tmp = getAggregateOpName(aggOp);
+        tmp += "(";
+        tmp += attrs.at(1).name;
+        tmp += ")";
+        attrs.at(1).name = tmp;
+    }
+}
+
+void Aggregate::prepareUnGroupedAttrs() {
+    attrs.push_back(aggAttr);
+}
+
+void Aggregate::prepareGroupedAttrs() {
+    attrs.push_back(groupAttr);
+    attrs.push_back(aggAttr);
+}
+
+string Aggregate::getAggregateOpName(AggregateOp aggOp) const {
+    switch (aggOp) {
+        case MIN:
+            return "MIN";
+        case MAX:
+            return "MAX";
+        case COUNT:
+            return "COUNT";
+        case SUM:
+            return "SUM";
+        case AVG:
+            return "AVG";
+    }
+}
+
+/** functions for general use **/
 unsigned computeTupleLength(const vector<Attribute> &attrs, const void *tuple) {
     auto numOfFields = attrs.size();
     unsigned tupleLength = getBytesOfNullIndicator(numOfFields);

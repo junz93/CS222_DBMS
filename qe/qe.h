@@ -16,7 +16,7 @@ typedef enum {
 } AggregateOp;
 
 // The following functions use the following
-// format for the passed data.
+// format for the pasAgsed data.
 //    For INT and REAL: use 4 bytes
 //    For VARCHAR: use 4 bytes for the length followed by the characters
 
@@ -33,6 +33,29 @@ struct Condition {
     string rhsAttr;        // right-hand side attribute if bRhsIsAttr = TRUE
     Value rhsValue;       // right-hand side value if bRhsIsAttr = FALSE
 };
+
+struct AggregateInfo {
+    float sum = 0, count = 0, min = 0, max = 0;
+
+    float getMin() { return min; }
+
+    float getMax() { return max; }
+
+    float getSum() { return sum; }
+
+    float getCount() {return count;}
+
+    float getAvg() {return sum / count};
+
+    float update(float inputValue) {
+        sum += inputValue;
+        count += 1;
+        min = inputValue < min ? inputValue : min;
+        max = inputValue > max ? inputValue : max;
+    }
+};
+
+//TODO: struct AggregateMap
 
 
 class Iterator {
@@ -205,11 +228,7 @@ private:
 class Project : public Iterator {
     // Projection operator
 public:
-    Project(Iterator *input, const vector<string> &attrNames) : iter(input) {
-        input->getAttributes(originalAttrs);
-        prepareNameAttributeMap(originalAttrs);
-        prepareAttrs(attrNames);
-    };
+    Project(Iterator *input, const vector<string> &attrNames);
 
     ~Project() {};
 
@@ -224,13 +243,13 @@ private:
     vector<Attribute> originalAttrs;
     unordered_map<string, Attribute> nameAttributeMap;
 
-    //const vector<string> &targetAttrNames;
     void prepareNameAttributeMap(const vector<Attribute> attrs);
 
     void prepareAttrs(const vector<string> attrNames);
 
     void prepareNullsIndicator(void *data);
 
+    // get key(data of target attribute) with judging whether the key is null or not
     bool
     getAttributeData(const void *data, const vector<Attribute> attrs, const Attribute targetAttr, void *attributeData);
 };
@@ -363,7 +382,7 @@ public:
     Aggregate(Iterator *input,          // Iterator of input R
               Attribute aggAttr,        // The attribute over which we are computing an aggregate
               AggregateOp op            // Aggregate operation
-    ) {}
+    );
 
     // Optional for everyone: 5 extra-credit points
     // Group-based hash aggregation
@@ -371,16 +390,33 @@ public:
               Attribute aggAttr,           // The attribute over which we are computing an aggregate
               Attribute groupAttr,         // The attribute over which we are grouping the tuples
               AggregateOp op              // Aggregate operation
-    ) {}
+    );
 
     ~Aggregate() {}
 
-    RC getNextTuple(void *data) { return QE_EOF; }
+    RC getNextTuple(void *data);
 
     // Please name the output attribute as aggregateOp(aggAttr)
     // E.g. Relation=rel, attribute=attr, aggregateOp=MAX
     // output attrname = "MAX(rel.attr)"
-    void getAttributes(vector<Attribute> &attrs) const {}
+    void getAttributes(vector<Attribute> &attrs) const;
+
+private:
+    AggregateInfo aggregateInfo;
+    Iterator *iter;
+    vector<Attribute> attrs;
+    vector<Attribute> originalAttrs;
+    Attribute aggAttr;
+    Attribute groupAttr;
+    AggregateOp aggOp;
+    void *groupMap = nullptr;
+    bool isGroupingRequired = false;
+
+    void prepareUnGroupedAttrs();
+    void prepareGroupedAttrs();
+    string getAggregateOpName(AggregateOp aggOp) const;
+    RC getNextUngroupedTuple(void *data);
+    RC getNextGroupedTuple(void *data);
 };
 
 unsigned computeTupleLength(const vector<Attribute> &attrs, const void *tuple);

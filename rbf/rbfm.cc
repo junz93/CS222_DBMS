@@ -461,7 +461,7 @@ RC RecordBasedFileManager::scan(FileHandle &fileHandle,
     rbfm_ScanIterator.recordDescriptor = recordDescriptor;
     rbfm_ScanIterator.compOp = compOp;
     rbfm_ScanIterator.value = value;
-    rbfm_ScanIterator.fileHandle = &fileHandle;
+    rbfm_ScanIterator.fileHandle = fileHandle;
     rbfm_ScanIterator.containData = false;
     rbfm_ScanIterator.numOfPages = fileHandle.getNumberOfPages();
     rbfm_ScanIterator.pageNum = 0;
@@ -714,10 +714,6 @@ RBFM_ScanIterator::~RBFM_ScanIterator()
 
 RC RBFM_ScanIterator::getNextRecord(RID &rid, void *data)
 {
-    if (fileHandle == nullptr) {
-        return RBFM_EOF;
-    }
-
     for (; pageNum < numOfPages; ++pageNum) {
         if (isHeaderPage(pageNum)) {
             continue;
@@ -725,7 +721,7 @@ RC RBFM_ScanIterator::getNextRecord(RID &rid, void *data)
 
         if (!containData) {
             containData = true;
-            fileHandle->readPage(pageNum, page);
+            fileHandle.readPage(pageNum, page);
             numOfSlots = rbfm->getNumOfSlots(page);
             slotNum = 0;
         }
@@ -769,8 +765,12 @@ RC RBFM_ScanIterator::getNextRecord(RID &rid, void *data)
 
 RC RBFM_ScanIterator::close()
 {
-    delete fileHandle;
-    fileHandle = nullptr;
+    containData = false;
+    numOfPages = 0;
+    pageNum = 0;
+    numOfSlots = 0;
+    slotNum = 0;
+    rbfm->closeFile(fileHandle);
     return SUCCESS;
 }
 

@@ -70,48 +70,50 @@ FileHandle::~FileHandle()
     closeFile();
 }
 
-
 RC FileHandle::openFile(const string &fileName)
 {
-    if (file.is_open()) {
+    if (file->is_open()) {
         return FAIL;
     }
-    file.open(fileName, fstream::in | fstream::out | fstream::binary);
-    if (!file.is_open()) {
+    file->open(fileName, fstream::in | fstream::out | fstream::binary);
+    if (!file->is_open()) {
         return FAIL;
     }
     byte header[PAGE_SIZE];
-    file.read(header, PAGE_SIZE);
+    file->read(header, PAGE_SIZE);
     if (!file || header[0] != FILE_ID) {
-        file.close();
+        file->close();
         return FAIL;
     }
-    readPageCounter = *((unsigned*) (header + RD_OFFSET));
-    writePageCounter = *((unsigned*) (header + WR_OFFSET));
-    appendPageCounter = *((unsigned*) (header + APP_OFFSET));
-    numOfPages = *((unsigned*) (header + NUM_OF_PAGES_OFFSET));
+    *readPageCounter = *((unsigned*) (header + RD_OFFSET));
+    *writePageCounter = *((unsigned*) (header + WR_OFFSET));
+    *appendPageCounter = *((unsigned*) (header + APP_OFFSET));
+    *numOfPages = *((unsigned*) (header + NUM_OF_PAGES_OFFSET));
     return SUCCESS;
 }
 
 
 RC FileHandle::closeFile()
 {
-    if (!file.is_open()) {
+    if (!file->is_open()) {
         return FAIL;
     }
 
     // update the header page
-    file.seekg(0, fstream::beg);
+    file->seekg(0, fstream::beg);
     byte header[PAGE_SIZE];
-    file.read(header, PAGE_SIZE);
-    memcpy(header + RD_OFFSET, &readPageCounter, sizeof(unsigned));
-    memcpy(header + WR_OFFSET, &writePageCounter, sizeof(unsigned));
-    memcpy(header + APP_OFFSET, &appendPageCounter, sizeof(unsigned));
-    memcpy(header + NUM_OF_PAGES_OFFSET, &numOfPages, sizeof(unsigned));
-    file.seekp(0, fstream::beg);
-    file.write(header, PAGE_SIZE);
-    file.close();
-    return (!file.is_open()) ? SUCCESS : FAIL;
+    file->read(header, PAGE_SIZE);
+    memcpy(header + RD_OFFSET, readPageCounter.get(), sizeof(unsigned));
+    memcpy(header + WR_OFFSET, writePageCounter.get(), sizeof(unsigned));
+    memcpy(header + APP_OFFSET, appendPageCounter.get(), sizeof(unsigned));
+    memcpy(header + NUM_OF_PAGES_OFFSET, numOfPages.get(), sizeof(unsigned));
+    file->seekp(0, fstream::beg);
+    file->write(header, PAGE_SIZE);
+    if (!file) {
+        return FAIL;
+    }
+    file = make_shared<fstream>();
+    return SUCCESS;
 }
 
 
@@ -120,9 +122,9 @@ RC FileHandle::readPage(PageNum pageNum, void *data)
     if (pageNum >= getNumberOfPages()) {
         return FAIL;
     }
-    file.seekg((pageNum+1) * PAGE_SIZE, fstream::beg);
-    file.read((char*) data, PAGE_SIZE);
-    return (file) ? (++readPageCounter, SUCCESS) : FAIL;
+    file->seekg((pageNum+1) * PAGE_SIZE, fstream::beg);
+    file->read((char*) data, PAGE_SIZE);
+    return (file) ? (++(*readPageCounter), SUCCESS) : FAIL;
 }
 
 
@@ -131,48 +133,48 @@ RC FileHandle::writePage(PageNum pageNum, const void *data)
     if (pageNum >= getNumberOfPages()) {
         return FAIL;
     }
-    file.seekp((pageNum+1) * PAGE_SIZE, fstream::beg);
-    file.write((const char*) data, PAGE_SIZE);
-    return (file) ? (++writePageCounter, SUCCESS) : FAIL;
+    file->seekp((pageNum+1) * PAGE_SIZE, fstream::beg);
+    file->write((const char*) data, PAGE_SIZE);
+    return (file) ? (++(*writePageCounter), SUCCESS) : FAIL;
 }
 
 
 RC FileHandle::appendPage(const void *data)
 {
-    file.seekp(0, fstream::end);
-    file.write((const char*) data, PAGE_SIZE);
-    return (file) ? (++appendPageCounter, ++numOfPages, SUCCESS) : FAIL;
+    file->seekp(0, fstream::end);
+    file->write((const char*) data, PAGE_SIZE);
+    return (file) ? (++(*appendPageCounter), ++(*numOfPages), SUCCESS) : FAIL;
 }
 
 
 unsigned FileHandle::getNumberOfPages()
 {
-    return numOfPages;
+    return *numOfPages;
 }
 
 
 RC FileHandle::collectCounterValues(unsigned &readPageCount, unsigned &writePageCount, unsigned &appendPageCount)
 {
-    readPageCount = readPageCounter;
-    writePageCount = writePageCounter;
-    appendPageCount = appendPageCounter;
+    readPageCount = *readPageCounter;
+    writePageCount = *writePageCounter;
+    appendPageCount = *appendPageCounter;
     return SUCCESS;
 }
 
 RC FileHandle::readHeaderPage(void *data)
 {
-    file.seekg(0, fstream::end);
-    if (file.tellg() <= 0) {
+    file->seekg(0, fstream::end);
+    if (file->tellg() <= 0) {
         return FAIL;
     }
-    file.seekg(0, fstream::beg);
-    file.read((char*) data, PAGE_SIZE);
+    file->seekg(0, fstream::beg);
+    file->read((char*) data, PAGE_SIZE);
     return (file) ? SUCCESS : FAIL;
 }
 
 RC FileHandle::writeHeaderPage(const void *data)
 {
-    file.seekp(0, fstream::beg);
-    file.write((const char*) data, PAGE_SIZE);
+    file->seekp(0, fstream::beg);
+    file->write((const char*) data, PAGE_SIZE);
     return (file) ? SUCCESS : FAIL;
 }

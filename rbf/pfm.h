@@ -3,6 +3,7 @@
 
 #include <climits>
 #include <fstream>
+#include <memory>
 #include <string>
 #include <iostream>
 
@@ -44,9 +45,10 @@ class FileHandle
 
 public:
     // variables to keep the counter for each operation
-    unsigned readPageCounter = 0;
-    unsigned writePageCounter = 0;
-    unsigned appendPageCounter = 0;
+    shared_ptr<unsigned> readPageCounter = make_shared<unsigned>(0);
+    shared_ptr<unsigned> writePageCounter = make_shared<unsigned>(0);
+    shared_ptr<unsigned> appendPageCounter = make_shared<unsigned>(0);
+    shared_ptr<unsigned> numOfPages = make_shared<unsigned>(0);
     
     FileHandle();                                                         // Default constructor
     ~FileHandle();                                                        // Destructor
@@ -65,8 +67,7 @@ private:
     static const int APP_OFFSET = WR_OFFSET + sizeof(unsigned);
     static const int NUM_OF_PAGES_OFFSET = APP_OFFSET + sizeof(unsigned);
 
-    fstream file;
-    unsigned numOfPages = 0;
+    shared_ptr<fstream> file = make_shared<fstream>();
 
     RC openFile(const string &fileName);
     RC closeFile();

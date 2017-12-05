@@ -139,7 +139,7 @@ RC RelationManager::insertTuple(const string &tableName, const void *data, RID &
         return FAIL;
     }
     prepareRelatedIndices(tableName, relatedIndices);
-    insertEntriesToRelatedIndices(relatedIndices, recordDescriptor, data);
+    insertEntriesToRelatedIndices(relatedIndices, recordDescriptor, data, rid);
 
     rbfm->closeFile(fileHandle);
 
@@ -195,7 +195,7 @@ RC RelationManager::updateTuple(const string &tableName, const void *data, const
     }
     prepareRelatedIndices(tableName, relatedIndices);
     deleteEntriesToRelatedIndices(relatedIndices, recordDescriptor, oldData);
-    insertEntriesToRelatedIndices(relatedIndices, recordDescriptor, data);
+    insertEntriesToRelatedIndices(relatedIndices, recordDescriptor, data, rid);
     rbfm->closeFile(fileHandle);
     free(oldData);
 
@@ -239,14 +239,14 @@ RC RelationManager::scan(const string &tableName,
                          const void *value,
                          const vector<string> &attributeNames,
                          RM_ScanIterator &rm_ScanIterator) {
-    FileHandle *fileHandle = new FileHandle;
+    FileHandle fileHandle;
     vector<Attribute> recordDescriptor;
     RBFM_ScanIterator &rbfm_scanIterator = rm_ScanIterator.rbfm_scanIterator;
 
-    if (rbfm->openFile(tableName, *fileHandle) == FAIL) { return FAIL; }
+    if (rbfm->openFile(tableName, fileHandle) == FAIL) { return FAIL; }
 
     prepareRecordDescriptor(tableName, recordDescriptor);
-    rbfm->scan(*fileHandle, recordDescriptor, conditionAttribute, compOp, value, attributeNames, rbfm_scanIterator);
+    rbfm->scan(fileHandle, recordDescriptor, conditionAttribute, compOp, value, attributeNames, rbfm_scanIterator);
 
     return SUCCESS;
 }
@@ -326,14 +326,14 @@ RC RelationManager::indexScan(const string &tableName,
                               bool lowKeyInclusive,
                               bool highKeyInclusive,
                               RM_IndexScanIterator &rm_IndexScanIterator) {
-    IXFileHandle *ixfileHandle = new IXFileHandle;
+    IXFileHandle ixfileHandle;
     IX_ScanIterator &ix_ScanIterator = rm_IndexScanIterator.ix_scanIterator;
     int tableId;
     RID rid;
     Attribute attribute;
     string indexName = tableName + "：" + attributeName;
 
-    if (ix->openFile(indexName, *ixfileHandle) == FAIL) {
+    if (ix->openFile(indexName, ixfileHandle) == FAIL) {
         return FAIL;
     }
     if (prepareTableIdAndTablesRid(tableName, tableId, rid) == FAIL) {
@@ -343,7 +343,7 @@ RC RelationManager::indexScan(const string &tableName,
     if (attribute.length == 0) {
         return FAIL;
     }
-    if (ix->scan(*ixfileHandle, attribute, lowKey, highKey, lowKeyInclusive, highKeyInclusive, ix_ScanIterator)
+    if (ix->scan(ixfileHandle, attribute, lowKey, highKey, lowKeyInclusive, highKeyInclusive, ix_ScanIterator)
         == FAIL) {
         return FAIL;
     }
@@ -745,9 +745,10 @@ RC RelationManager::prepareRelatedIndices(const string &tableName, vector<Index>
 }
 
 RC RelationManager::insertEntriesToRelatedIndices(const vector<Index> &relatedIndices,
-                                                  const vector<Attribute> &recordDescriptor, const void *data) {
+                                                  const vector<Attribute> &recordDescriptor,
+                                                  const void *data, const RID &rid) {
     IXFileHandle ixFileHandle;
-    RID rid;
+//    RID rid;
     void *key = malloc(PAGE_SIZE);
     Attribute attribute;
 

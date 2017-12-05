@@ -197,7 +197,7 @@ bool Project::getAttributeData(const void *data, const vector<Attribute> attrs, 
 BNLJoin::BNLJoin(Iterator *leftIn, TableScan *rightIn, const Condition &condition, const unsigned numPages)
         : leftIn(leftIn), rightIn(rightIn), condition(condition), numOfBufferPages(numPages) {
     assert(condition.op == EQ_OP);  // should be equijoin
-    leftBuffer = new byte[numPages];
+    leftBuffer = new byte[numPages * PAGE_SIZE];
     leftIn->getAttributes(leftAttrs);
     rightIn->getAttributes(rightAttrs);
 //    rightIn->setIterator();
@@ -252,26 +252,27 @@ RC BNLJoin::getNextTuple(void *data) {
     while (true) {
         if (leftBufferSize == 0) {
             while (true) {  // read the next block of tuples from left relation to leftBuffer
+                unsigned leftTupleLength;
                 if (lastLeftTupleLength != 0) {
-                    lastLeftTupleLength = 0;
                     memcpy(leftBuffer, leftTuple, lastLeftTupleLength);
-                    leftBufferSize = lastLeftTupleLength;
+                    leftTupleLength = lastLeftTupleLength;
+                    lastLeftTupleLength = 0;
                 } else {
                     RC rcLeft = leftIn->getNextTuple(leftTuple);
                     if (rcLeft == QE_EOF) {
                         break;
                     }
-                    unsigned leftTupleLength = computeTupleLength(leftAttrs, leftTuple);
+                    leftTupleLength = computeTupleLength(leftAttrs, leftTuple);
                     if (leftBufferSize + leftTupleLength > numOfBufferPages * PAGE_SIZE) {
                         lastLeftTupleLength = leftTupleLength;
                         break;
                     }
                     memcpy(leftBuffer + leftBufferSize, leftTuple, leftTupleLength);
-                    leftBufferSize += leftTupleLength;
                 }
 
                 unsigned attrOffset = getAttributeOffset(leftAttrs, leftTuple, leftAttrNo);
                 insertToHashTable(hashTable, attrType, leftTuple + attrOffset, leftBufferSize);
+                leftBufferSize += leftTupleLength;
             }
             if (leftBufferSize == 0) {
                 break;  // return QE_EOF;
@@ -354,6 +355,7 @@ RC INLJoin::getNextTuple(void *data) {
         RC rcRight = rightIn->getNextTuple(rightTuple);
         if (rcRight != QE_EOF) {
             joinTuples(leftAttrs, leftTuple, rightAttrs, rightTuple, data);
+            return SUCCESS;
         }
         isLeftTupleEmpty = true;
     }
@@ -398,8 +400,8 @@ GHJoin::GHJoin(Iterator *leftIn, Iterator *rightIn, const Condition &condition, 
 
     leftRelName = leftAttrs[0].name.substr(0, leftAttrs[0].name.find_first_of('.'));
     rightRelName = rightAttrs[0].name.substr(0, rightAttrs[0].name.find_first_of('.'));
-    leftFileHandles = new FileHandle[numOfPartitions];
-    rightFileHandles = new FileHandle[numOfPartitions];
+    FileHandle *leftFileHandles = new FileHandle[numOfPartitions];
+    FileHandle *rightFileHandles = new FileHandle[numOfPartitions];
     for (unsigned i = 0; i < numOfPartitions; ++i) {
         string suffix = to_string(i);
         rbfm->createFile("left_join_" + leftRelName + suffix);
@@ -440,11 +442,12 @@ GHJoin::GHJoin(Iterator *leftIn, Iterator *rightIn, const Condition &condition, 
             hashTable = new unordered_map<string, vector<unsigned>>();
             break;
     }
+
+    delete[] leftFileHandles;
+    delete[] rightFileHandles;
 }
 
 GHJoin::~GHJoin() {
-    delete[] leftFileHandles;
-    delete[] rightFileHandles;
     for (unsigned i = 0; i < numOfPartitions; ++i) {
         string suffix = to_string(i);
         rbfm->destroyFile("left_join_" + leftRelName + suffix);
@@ -466,12 +469,14 @@ GHJoin::~GHJoin() {
 RC GHJoin::getNextTuple(void *data) {
     for (; curPartitionNum < numOfPartitions; ++curPartitionNum) {
         if (leftBufferSize == 0) {
-            rbfm->scan(leftFileHandles[curPartitionNum], leftAttrs, "", NO_OP, nullptr, leftAttrNames, leftIterator);
-            unsigned numOfLeftPages = leftFileHandles[curPartitionNum].getNumberOfPages();
+            FileHandle leftFileHandle;
+            rbfm->openFile("left_join_" + leftRelName + to_string(curPartitionNum), leftFileHandle);
+            rbfm->scan(leftFileHandle, leftAttrs, "", NO_OP, nullptr, leftAttrNames, leftIterator);
+            unsigned numOfLeftPages = leftFileHandle.getNumberOfPages();
             if (numOfLeftPages == 0) {
                 continue;
             }
-            leftBuffer = new byte[numOfLeftPages];
+            leftBuffer = new byte[numOfLeftPages * PAGE_SIZE];
             RID rid;
             while (leftIterator.getNextRecord(rid, leftBuffer + leftBufferSize) != RBFM_EOF) {
                 unsigned leftTupleLength = computeTupleLength(leftAttrs, leftBuffer + leftBufferSize);
@@ -479,12 +484,15 @@ RC GHJoin::getNextTuple(void *data) {
                 insertToHashTable(hashTable, attrType, leftBuffer + leftBufferSize + attrOffset, leftBufferSize);
                 leftBufferSize += leftTupleLength;
             }
+            leftIterator.close();   // the leftIterator will never be used again
+
             if (leftBufferSize == 0) {
                 delete[] leftBuffer;
                 continue;
             }
-            rbfm->scan(rightFileHandles[curPartitionNum], rightAttrs, "", NO_OP, nullptr, rightAttrNames,
-                       rightIterator);
+            FileHandle rightFileHandle;
+            rbfm->openFile("right_join_" + rightRelName + to_string(curPartitionNum), rightFileHandle);
+            rbfm->scan(rightFileHandle, rightAttrs, "", NO_OP, nullptr, rightAttrNames, rightIterator);
         }
         RID rid;
         while (true) {
@@ -504,6 +512,7 @@ RC GHJoin::getNextTuple(void *data) {
             }
         }
 
+        rightIterator.close();  // the rightIterator will never be used again
         delete[] leftBuffer;
         leftBufferSize = 0;
         clearHashTable(hashTable, attrType);
@@ -642,10 +651,11 @@ void joinTuples(const vector<Attribute> &leftAttrs, const byte *leftTuple,
                 void *data) {
     unsigned bytesOfNullFlagsLeft = getBytesOfNullIndicator(leftAttrs.size());
     unsigned bytesOfNullFlagsRight = getBytesOfNullIndicator(rightAttrs.size());
-    memset(data, 0, bytesOfNullFlagsLeft + bytesOfNullFlagsRight);
+    unsigned bytesOfNullFlags = getBytesOfNullIndicator(leftAttrs.size() + rightAttrs.size());
+    memset(data, 0, bytesOfNullFlags);
     memcpy(data, leftTuple, bytesOfNullFlagsLeft);
-    byte *pFlag = (byte *) data + leftAttrs.size() / 8;
-    byte *pData = pFlag + bytesOfNullFlagsLeft + bytesOfNullFlagsRight;
+    byte *pFlag = (byte*) data + leftAttrs.size() / 8;
+    byte *pData = (byte*) data + bytesOfNullFlags;
     uint8_t flagMask = 0x80 >> (leftAttrs.size() % 8);
     const byte *pFlagRight = rightTuple;
     uint8_t flagMaskRight = 0x80;

@@ -53,6 +53,7 @@ RC IndexManager::insertEntry(IXFileHandle &ixfileHandle, const Attribute &attrib
     PageNum newChildNum;
     if (insertEntry(ixfileHandle, rootNum, attribute, key, rid, isSplit, newChildKey, newChildRid, newChildNum) ==
         FAIL) {
+        delete[] newChildKey;
         return FAIL;
     }
     if (isSplit) {
@@ -111,14 +112,14 @@ unsigned IndexManager::findFirstQualifiedEntry(const byte *node, const Attribute
     while (offset < PAGE_SIZE - freeBytes) {
         const void *curKey = node + offset;
         unsigned keyLength = getKeyLength(attribute, curKey);
-        if (highKey != NULL) {  //  judge whether the curKey is larger than high key when high key exists
+        if (highKey != nullptr) {  //  judge whether the curKey is larger than high key when high key exists
             int cmp = compareKey(attribute, highKey, curKey);
             if ((cmp == 0 && !highKeyInclusive) || (cmp < 0)) { // be sure that no qualified entry exist
                 isQualifiedEntryExist = false;
                 return PAGE_SIZE;
             }
         }
-        if (lowKey == NULL) {  // return the offset of leftmost key when low key does not exist
+        if (lowKey == nullptr) {  // return the offset of leftmost key when low key does not exist
             return offset;
         }
         int cmp = compareKey(attribute, lowKey, curKey);
@@ -130,7 +131,7 @@ unsigned IndexManager::findFirstQualifiedEntry(const byte *node, const Attribute
     return PAGE_SIZE;
 }
 
-RC
+void
 IndexManager::initializeScanIterator(IXFileHandle &ixfileHandle, const Attribute &attribute, const void *lowKey,
                                      const void *highKey, bool lowKeyInclusive, bool highKeyInclusive, PageNum nodeNum,
                                      IX_ScanIterator &ix_ScanIterator) {
@@ -147,17 +148,16 @@ IndexManager::initializeScanIterator(IXFileHandle &ixfileHandle, const Attribute
                                          isQualifiedEntryExist);
     }
     if (offset == PAGE_SIZE || !isQualifiedEntryExist) {  // no qualified entries found
-        return FAIL;
+        return;
     }
 
-    ix_ScanIterator.ixFileHandle = &ixfileHandle;
+    ix_ScanIterator.isReady = true;
+    ix_ScanIterator.ixFileHandle = ixfileHandle;
     ixfileHandle.readPage(nodeNum, ix_ScanIterator.node);
     ix_ScanIterator.offset = offset;
     ix_ScanIterator.highKey = highKey;
     ix_ScanIterator.highKeyInclusive = highKeyInclusive;
     ix_ScanIterator.attribute = attribute;
-
-    return SUCCESS;
 }
 
 RC IndexManager::scan(IXFileHandle &ixfileHandle,
@@ -512,14 +512,14 @@ IX_ScanIterator::~IX_ScanIterator() {
 }
 
 RC IX_ScanIterator::getNextEntry(RID &rid, void *key) {
-    if (ixFileHandle == nullptr) {  // no qualified entries
+    if (!isReady) {
         return IX_EOF;
     }
     unsigned freeSpace = indexManager->getFreeSpace(node);
     if (offset == PAGE_SIZE - freeSpace) {  //  all entries in current node have been scanned
         if (indexManager->hasNext(node)) {
             PageNum nextNodeNum = indexManager->getNextNum(node);
-            ixFileHandle->readPage(nextNodeNum, node);
+            ixFileHandle.readPage(nextNodeNum, node);
             offset = LEAF_HEADER_SZ;
         } else {    //  no more entries to scan
             return IX_EOF;
@@ -527,7 +527,7 @@ RC IX_ScanIterator::getNextEntry(RID &rid, void *key) {
     }
 
     void *curKey = node + offset;
-    if (highKey != NULL) {
+    if (highKey != nullptr) {
         int cmp = indexManager->compareKey(attribute, curKey, highKey);
         if ((cmp == 0 && !highKeyInclusive) || (cmp > 0)) { //  current entry is not qualified
             return IX_EOF;
@@ -543,8 +543,8 @@ RC IX_ScanIterator::getNextEntry(RID &rid, void *key) {
 }
 
 RC IX_ScanIterator::close() {
-    delete ixFileHandle;
-    ixFileHandle = nullptr;
+    isReady = false;
+    indexManager->closeFile(ixFileHandle);
     return SUCCESS;
 }
 

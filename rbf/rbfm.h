@@ -123,16 +123,16 @@ private:
     vector<unsigned> attrNums;
     unsigned conditionAttrNum;
     CompOp compOp;
-    // TODO: should dynamically allocate space for this pointer and store the value in the space
+    // TODO: should dynamically allocate space for this pointer and store the value
     const void *value;
 
-    FileHandle *fileHandle = nullptr;   // the FileHandle object should be dynamically allocated
+    FileHandle fileHandle;   // the FileHandle object should be dynamically allocated
     byte page[PAGE_SIZE];
-    bool containData;   // whether the page array contains page data of the current pageNum
-    PageNum numOfPages;
-    PageNum pageNum;
-    unsigned numOfSlots;
-    SlotNum slotNum;
+    bool containData = false;   // whether the page array contains page data of the current pageNum
+    PageNum numOfPages = 0;
+    PageNum pageNum = 0;
+    unsigned numOfSlots = 0;
+    SlotNum slotNum = 0;
 
     bool isHeaderPage(PageNum pageNum)
     {

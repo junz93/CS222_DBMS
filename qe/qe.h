@@ -342,8 +342,6 @@ private:
     unsigned rightAttrNo;           // no of condition attribute in right relation
     AttrType attrType;              // type of condition attribute
 
-    FileHandle *leftFileHandles = nullptr;
-    FileHandle *rightFileHandles = nullptr;
     RBFM_ScanIterator leftIterator;
     RBFM_ScanIterator rightIterator;
     byte *leftBuffer = nullptr;     // memory buffer for tuples from left relation
@@ -351,8 +349,6 @@ private:
     void *hashTable = nullptr;
     vector<unsigned> leftOffsets;
     unsigned leftIdx = 0;
-//    byte leftTuple[PAGE_SIZE];          // the last tuple from left relation
-//    unsigned lastLeftTupleLength = 0;   // length of the last left tuple that is not loaded into leftBuffer
     byte rightTuple[PAGE_SIZE];         // current tuple from right relation
 };
 

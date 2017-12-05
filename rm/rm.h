@@ -188,7 +188,7 @@ private:
     RC prepareRelatedIndices(const string &tableName, vector<Index> &relatedIndices);
 
     RC insertEntriesToRelatedIndices(const vector<Index> &relatedIndices, const vector<Attribute> &recordDescriptor,
-                                     const void *data);
+                                     const void *data, const RID &rid);
 
     RC deleteEntriesToRelatedIndices(const vector<Index> &relatedIndices, const vector<Attribute> &recordDescriptor,
                                      const void *data);

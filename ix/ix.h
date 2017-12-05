@@ -64,7 +64,7 @@ private:
     static IndexManager *_index_manager;
     PagedFileManager *pfm = PagedFileManager::instance();
 
-    RC initializeScanIterator(IXFileHandle &ixfileHandle, const Attribute &attribute, const void *lowKey,
+    void initializeScanIterator(IXFileHandle &ixfileHandle, const Attribute &attribute, const void *lowKey,
                               const void *highKey, bool lowKeyInclusive, bool highKeyInclusive, PageNum nodeNum,
                               IX_ScanIterator &ix_ScanIterator);
 
@@ -211,33 +211,6 @@ void IndexManager::setNextNum(byte *node, PageNum nextNum) {
     *((PageNum *) (node + FREE_SPACE_SZ + LEAF_FLAG_SZ + NODE_PTR_SZ)) = nextNum;
 }
 
-class IX_ScanIterator {
-    friend class IndexManager;
-public:
-
-    // Constructor
-    IX_ScanIterator();
-
-    // Destructor
-    ~IX_ScanIterator();
-
-    // Get next matching entry
-    RC getNextEntry(RID &rid, void *key);
-
-    // Terminate index scan
-    RC close();
-
-private:
-    IndexManager *indexManager = IndexManager::instance();
-    IXFileHandle *ixFileHandle = nullptr;
-    byte node[PAGE_SIZE];
-    unsigned offset;
-    const void *highKey;
-    bool highKeyInclusive;
-    Attribute attribute;
-};
-
-
 class IXFileHandle {
     friend class IndexManager;
 
@@ -277,6 +250,33 @@ public:
 
 private:
     FileHandle fileHandle;
+};
+
+class IX_ScanIterator {
+    friend class IndexManager;
+public:
+
+    // Constructor
+    IX_ScanIterator();
+
+    // Destructor
+    ~IX_ScanIterator();
+
+    // Get next matching entry
+    RC getNextEntry(RID &rid, void *key);
+
+    // Terminate index scan
+    RC close();
+
+private:
+    IndexManager *indexManager = IndexManager::instance();
+    bool isReady = false;
+    IXFileHandle ixFileHandle;
+    byte node[PAGE_SIZE];
+    unsigned offset;
+    const void *highKey;
+    bool highKeyInclusive;
+    Attribute attribute;
 };
 
 #endif

@@ -808,6 +808,9 @@ RC RelationManager::prepareKeyAndAttribute(const vector<Attribute> &recordDescri
                                            const string &attributeName,
                                            void *key, Attribute &attribute) {
     int offset = getBytesOfNullIndicator(recordDescriptor.size());
+    const byte *pFlag = (const byte*) data;
+    uint8_t flagMask = 0x80;
+
     for (Attribute currentAttribute : recordDescriptor) {
         if (currentAttribute.name == attributeName) {
             attribute = currentAttribute;
@@ -823,15 +826,23 @@ RC RelationManager::prepareKeyAndAttribute(const vector<Attribute> &recordDescri
             }
             return SUCCESS;
         } else {
-            switch (currentAttribute.type) {
-                case TypeInt:
-                case TypeReal:
-                    offset += 4;
-                    break;
-                case TypeVarChar:
-                    uint32_t length = *((uint32_t *) ((char *) data + offset));
-                    offset += (4 + length);
-                    break;
+            if (!(*pFlag & flagMask)) {
+                switch (currentAttribute.type) {
+                    case TypeInt:
+                    case TypeReal:
+                        offset += 4;
+                        break;
+                    case TypeVarChar:
+                        uint32_t length = *((uint32_t *) ((char *) data + offset));
+                        offset += (4 + length);
+                        break;
+                }
+            }
+            if (flagMask == 0x01) {
+                flagMask = 0x80;
+                ++pFlag;
+            } else {
+                flagMask = flagMask >> 1;
             }
         }
     }

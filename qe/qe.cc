@@ -45,7 +45,7 @@ void Filter::getAttributes(vector<Attribute> &attrs) const {
 
 RC Filter::getLhsValue(const vector<Attribute> attrs, const string attrName, const void *data, Value &value) {
     int offset = getBytesOfNullIndicator(attrs.size());
-    const byte *pFlag = (const byte*) data;
+    const byte *pFlag = (const byte *) data;
     uint8_t flagMask = 0x80;
     for (Attribute attr : attrs) {
         if (attr.name == attrName) {
@@ -168,43 +168,6 @@ void Project::prepareAttrs(const vector<string> attrNames) {
 void Project::prepareNullsIndicator(void *data) {
     int length = getBytesOfNullIndicator(attrs.size());
     memset(data, 0, length);
-}
-
-bool Project::getAttributeData(const void *data, const vector<Attribute> attrs, const Attribute targetAttr,
-                               void *attributeData) {
-    int offset = getBytesOfNullIndicator(attrs.size());
-    for (int i = 0; i < attrs.size(); i++) {
-        Attribute currentAttribute = attrs[i];
-        if (currentAttribute.name == targetAttr.name) {
-            if (isAttributeNull(i, data)) {
-                return false;
-            }
-            switch (currentAttribute.type) {
-                case TypeInt:
-                case TypeReal:
-                    memcpy(attributeData, (char *) data + offset, 4);
-                    break;
-                case TypeVarChar:
-                    uint32_t length = *((uint32_t *) ((char *) data + offset));
-                    memcpy(attributeData, (char *) data + offset, 4 + length);
-                    break;
-            }
-            return true;
-        } else {
-            switch (currentAttribute.type) {
-                case TypeInt:
-                case TypeReal:
-                    offset += 4;
-                    break;
-                case TypeVarChar:
-                    uint32_t length = *((uint32_t *) ((char *) data + offset));
-                    offset += (4 + length);
-                    break;
-            }
-        }
-    }
-    cerr << "Didn't find corresponding attribute, which should be impossible!" << endl;
-    return false;
 }
 
 /**  Join Related Functions  **/
@@ -464,7 +427,7 @@ GHJoin::GHJoin(Iterator *leftIn, Iterator *rightIn, const Condition &condition, 
 
 GHJoin::~GHJoin() {
     for (unsigned i = 0; i < numOfPartitions; ++i) {
-        string suffix = "_" +to_string(i);
+        string suffix = "_" + to_string(i);
         rbfm->destroyFile("left_join_" + to_string(leftRelNo) + suffix);
         rbfm->destroyFile("right_join_" + to_string(rightRelNo) + suffix);
     }
@@ -544,6 +507,7 @@ void GHJoin::getAttributes(vector<Attribute> &attrs) const {
 /** Aggregate Related Functions **/
 
 Aggregate::Aggregate(Iterator *input, Attribute aggAttr, AggregateOp op) : iter(input), aggAttr(aggAttr), aggOp(op) {
+    isGroupingRequired = false;
     input->getAttributes(originalAttrs);
     prepareUnGroupedAttrs();
 }
@@ -575,7 +539,27 @@ RC Aggregate::getNextTuple(void *data) {
 }
 
 RC Aggregate::getNextUngroupedTuple(void *data) {
+    float *aggAttrValuePtr;
+    float aggAttrValue;
+    void *originalData = malloc(PAGE_SIZE);
 
+    if (reachEOF) {
+        return QE_EOF;
+    }
+    while (iter->getNextTuple(originalData) != QE_EOF) {
+        if (!getAttributeData(originalData, originalAttrs, aggAttr, aggAttrValuePtr)) { return FAIL; }
+        if (aggAttr.type == TypeInt) {
+            aggAttrValue = (float)(*((int *)aggAttrValuePtr));
+        } else {
+            aggAttrValue = *aggAttrValuePtr;
+        }
+        aggregateInfo.update(aggAttrValue);
+    }
+    prepareUngroupedTuple(data);
+    reachEOF = true;
+
+    free(originalData);
+    return SUCCESS;
 }
 
 RC Aggregate::getNextGroupedTuple(void *data) {
@@ -593,7 +577,24 @@ void Aggregate::getAttributes(vector<Attribute> &attrs) const {
         tmp += attrs.at(1).name;
         tmp += ")";
         attrs.at(1).name = tmp;
+    } else {
+        string tmp = getAggregateOpName(aggOp);
+        tmp += "(";
+        tmp += attrs.at(0).name;
+        tmp += ")";
+        attrs.at(0).name = tmp;
     }
+}
+
+RC Aggregate::prepareUngroupedTuple(void *data) {
+    memset(data, 0, 1); // set nulls indicator
+    int offset = 1;
+    *((float *)((byte *) data + offset)) = aggregateInfo.getAggreteValue(aggOp);
+    return SUCCESS;
+}
+
+RC Aggregate::prepareGroupedTuple(void *data) {
+
 }
 
 void Aggregate::prepareUnGroupedAttrs() {
@@ -750,8 +751,8 @@ void joinTuples(const vector<Attribute> &leftAttrs, const byte *leftTuple,
     unsigned bytesOfNullFlags = getBytesOfNullIndicator(leftAttrs.size() + rightAttrs.size());
     memset(data, 0, bytesOfNullFlags);
     memcpy(data, leftTuple, bytesOfNullFlagsLeft);
-    byte *pFlag = (byte*) data + leftAttrs.size() / 8;
-    byte *pData = (byte*) data + bytesOfNullFlags;
+    byte *pFlag = (byte *) data + leftAttrs.size() / 8;
+    byte *pData = (byte *) data + bytesOfNullFlags;
     uint8_t flagMask = 0x80 >> (leftAttrs.size() % 8);
     const byte *pFlagRight = rightTuple;
     uint8_t flagMaskRight = 0x80;

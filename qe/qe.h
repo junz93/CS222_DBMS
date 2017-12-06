@@ -35,28 +35,30 @@ struct Condition {
 };
 
 struct AggregateInfo {
-    float sum = 0, count = 0, min = 0, max = 0;
+    float sum = 0, count = 0, min = numeric_limits<float>::max(), max = numeric_limits<float>::min();;
 
-    float getMin() { return min; }
-
-    float getMax() { return max; }
-
-    float getSum() { return sum; }
-
-    float getCount() {return count;}
-
-    float getAvg() {return sum / count};
-
-    float update(float inputValue) {
+    void update(float inputValue) {
         sum += inputValue;
         count += 1;
         min = inputValue < min ? inputValue : min;
         max = inputValue > max ? inputValue : max;
     }
+
+    float getAggreteValue(AggregateOp aggOp) {
+        switch (aggOp) {
+            case MIN:
+                return min;
+            case MAX:
+                return max;
+            case COUNT:
+                return count;
+            case SUM:
+                return sum;
+            case AVG:
+                return sum / count;
+        }
+    }
 };
-
-//TODO: struct AggregateMap
-
 
 class Iterator {
     // All the relational operators and access methods are iterators.
@@ -248,10 +250,6 @@ private:
     void prepareAttrs(const vector<string> attrNames);
 
     void prepareNullsIndicator(void *data);
-
-    // get key(data of target attribute) with judging whether the key is null or not
-    bool
-    getAttributeData(const void *data, const vector<Attribute> attrs, const Attribute targetAttr, void *attributeData);
 };
 
 class BNLJoin : public Iterator {
@@ -410,13 +408,16 @@ private:
     Attribute groupAttr;
     AggregateOp aggOp;
     void *groupMap = nullptr;
-    bool isGroupingRequired = false;
+    bool isGroupingRequired;
+    bool reachEOF = false;
 
     void prepareUnGroupedAttrs();
     void prepareGroupedAttrs();
     string getAggregateOpName(AggregateOp aggOp) const;
     RC getNextUngroupedTuple(void *data);
     RC getNextGroupedTuple(void *data);
+    RC prepareUngroupedTuple(void *data);
+    RC prepareGroupedTuple(void *data);
 };
 
 unsigned computeTupleLength(const vector<Attribute> &attrs, const void *tuple);
@@ -441,6 +442,55 @@ inline bool isAttributeNull(const int attributeIndex, const void *data) {
     int nullOffset = attributeIndex / 8;
     uint8_t flag = 0x80 >> (attributeIndex % 8);
     return *((uint8_t *) data + nullOffset) & flag;
+}
+
+// get key(data of target attribute) with judging whether the key is null or not
+inline bool
+getAttributeData(const void *data, const vector<Attribute> attrs, const Attribute targetAttr, void *attributeData) {
+    int offset = getBytesOfNullIndicator(attrs.size());
+    const byte *pFlag = (const byte*) data;
+    uint8_t flagMask = 0x80;
+
+    for (int i = 0; i < attrs.size(); i++) {
+        Attribute currentAttribute = attrs[i];
+        if (currentAttribute.name == targetAttr.name) {
+            if (*pFlag & flagMask) {
+                return false;
+            }
+            switch (currentAttribute.type) {
+                case TypeInt:
+                case TypeReal:
+                    memcpy(attributeData, (char *) data + offset, 4);
+                    break;
+                case TypeVarChar:
+                    uint32_t length = *((uint32_t *) ((char *) data + offset));
+                    memcpy(attributeData, (char *) data + offset, 4 + length);
+                    break;
+            }
+            return true;
+        } else {
+            if (!(*pFlag & flagMask)) {
+                switch (currentAttribute.type) {
+                    case TypeInt:
+                    case TypeReal:
+                        offset += 4;
+                        break;
+                    case TypeVarChar:
+                        uint32_t length = *((uint32_t *) ((char *) data + offset));
+                        offset += (4 + length);
+                        break;
+                }
+            }
+            if (flagMask == 0x01) {
+                flagMask = 0x80;
+                ++pFlag;
+            } else {
+                flagMask = flagMask >> 1;
+            }
+        }
+    }
+    cerr << "Didn't find corresponding attribute, which should be impossible!" << endl;
+    return false;
 }
 
 #endif

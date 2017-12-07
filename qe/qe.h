@@ -389,7 +389,7 @@ public:
               AggregateOp op              // Aggregate operation
     );
 
-    ~Aggregate() {}
+    ~Aggregate();
 
     RC getNextTuple(void *data);
 

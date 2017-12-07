@@ -530,6 +530,20 @@ Aggregate::Aggregate(Iterator *input, Attribute aggAttr, Attribute groupAttr, Ag
     }
 }
 
+Aggregate::~Aggregate() {
+    switch (groupAttr.type) {
+        case TypeInt:
+            delete (unordered_map<int32_t, AggregateInfo> *) groupMapPtr;
+            break;
+        case TypeReal:
+            delete (unordered_map<float, AggregateInfo> *) groupMapPtr;
+            break;
+        case TypeVarChar:
+            delete (unordered_map<string, AggregateInfo> *) groupMapPtr;
+            break;
+    }
+}
+
 RC Aggregate::getNextTuple(void *data) {
     if (isGroupingRequired) {
         return getNextGroupedTuple(data);
@@ -559,7 +573,7 @@ RC Aggregate::getNextUngroupedTuple(void *data) {
     reachEOF = true;
 
     free(originalData);
-    delete(aggAttrValuePtr);
+    delete (aggAttrValuePtr);
     return SUCCESS;
 }
 

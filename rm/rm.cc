@@ -166,7 +166,7 @@ RC RelationManager::deleteTuple(const string &tableName, const RID &rid) {
         return FAIL;
     }
     prepareRelatedIndices(tableName, relatedIndices);
-    deleteEntriesToRelatedIndices(relatedIndices, recordDescriptor, data);
+    deleteEntriesToRelatedIndices(relatedIndices, recordDescriptor, data, rid);
     rbfm->closeFile(fileHandle);
     free(data);
 
@@ -194,7 +194,7 @@ RC RelationManager::updateTuple(const string &tableName, const void *data, const
         return FAIL;
     }
     prepareRelatedIndices(tableName, relatedIndices);
-    deleteEntriesToRelatedIndices(relatedIndices, recordDescriptor, oldData);
+    deleteEntriesToRelatedIndices(relatedIndices, recordDescriptor, oldData, rid);
     insertEntriesToRelatedIndices(relatedIndices, recordDescriptor, data, rid);
     rbfm->closeFile(fileHandle);
     free(oldData);
@@ -761,6 +761,7 @@ RC RelationManager::insertEntriesToRelatedIndices(const vector<Index> &relatedIn
         if (ix->insertEntry(ixFileHandle, attribute, key, rid) == FAIL) {
             return FAIL;
         }
+        ix->closeFile(ixFileHandle);
     }
 
     free(key);
@@ -768,10 +769,11 @@ RC RelationManager::insertEntriesToRelatedIndices(const vector<Index> &relatedIn
     return SUCCESS;
 }
 
-RC RelationManager::deleteEntriesToRelatedIndices(const vector<Index> &relatedIndices,
-                                                  const vector<Attribute> &recordDescriptor, const void *data) {
+RC RelationManager::deleteEntriesToRelatedIndices(const vector<Index> &relatedIndices, 
+                                                  const vector<Attribute> &recordDescriptor, 
+                                                  const void *data, const RID &rid) {
     IXFileHandle ixFileHandle;
-    RID rid;
+//    RID rid;
     void *key = malloc(PAGE_SIZE);
     Attribute attribute;
 
@@ -786,6 +788,7 @@ RC RelationManager::deleteEntriesToRelatedIndices(const vector<Index> &relatedIn
         if (ix->deleteEntry(ixFileHandle, attribute, key, rid) == FAIL) {
             return FAIL;
         }
+        ix->closeFile(ixFileHandle);
     }
 
     free(key);

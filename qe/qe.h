@@ -1,6 +1,7 @@
 #ifndef _qe_h_
 #define _qe_h_
 
+#include <limits>
 #include <vector>
 
 #include "../rbf/rbfm.h"
@@ -35,7 +36,7 @@ struct Condition {
 };
 
 struct AggregateInfo {
-    float sum = 0, count = 0, min = numeric_limits<float>::max(), max = numeric_limits<float>::min();;
+    float sum = 0, count = 0, min = numeric_limits<float>::max(), max = numeric_limits<float>::min();
 
     void update(float inputValue) {
         sum += inputValue;
@@ -349,8 +350,6 @@ private:
     unsigned numOfPartitions;
     unsigned curPartitionNum = 0;
 
-//    string leftRelName;        // name of the left relation
-//    string rightRelName;       // name of the right relation
     int leftRelNo = relNo++;
     int rightRelNo = relNo++;
     vector<Attribute> leftAttrs;
@@ -407,9 +406,10 @@ private:
     Attribute aggAttr;
     Attribute groupAttr;
     AggregateOp aggOp;
-    void *groupMap = nullptr;
+    void *groupMapPtr = nullptr;
     bool isGroupingRequired;
     bool reachEOF = false;
+    bool scanned = false;
 
     void prepareUnGroupedAttrs();
     void prepareGroupedAttrs();
@@ -417,7 +417,11 @@ private:
     RC getNextUngroupedTuple(void *data);
     RC getNextGroupedTuple(void *data);
     RC prepareUngroupedTuple(void *data);
-    RC prepareGroupedTuple(void *data);
+    RC prepareGroupedTuple(void *groupAttrValuePtr, void *data);
+    RC findAggregateIfoFromGroupMap(const byte *key);
+    RC putAggreateInfoToGroupMap(const byte *key, const AggregateInfo &value);
+    AggregateInfo getAggregateIfoFromGroupMap(const byte *keyPtr);
+    RC prepareNextKeyValueFromGroupMap(void *groupAttrValuePtr, AggregateInfo &aggregateInfo);
 };
 
 unsigned computeTupleLength(const vector<Attribute> &attrs, const void *tuple);
@@ -436,13 +440,6 @@ void joinTuples(const vector<Attribute> &leftAttrs, const byte *leftTuple,
 
 // used in Grace Hash Join
 unsigned getPartitionNum(AttrType type, const byte *key, unsigned numOfPartitions);
-
-
-inline bool isAttributeNull(const int attributeIndex, const void *data) {
-    int nullOffset = attributeIndex / 8;
-    uint8_t flag = 0x80 >> (attributeIndex % 8);
-    return *((uint8_t *) data + nullOffset) & flag;
-}
 
 // get key(data of target attribute) with judging whether the key is null or not
 inline bool

@@ -519,13 +519,13 @@ Aggregate::Aggregate(Iterator *input, Attribute aggAttr, Attribute groupAttr, Ag
     prepareGroupedAttrs();
     switch (groupAttr.type) {
         case TypeInt:
-            groupMap = new unordered_map<int32_t, vector<unsigned>>();
+            groupMapPtr = new unordered_map<int32_t, AggregateInfo>();
             break;
         case TypeReal:
-            groupMap = new unordered_map<float, vector<unsigned>>();
+            groupMapPtr = new unordered_map<float, AggregateInfo>();
             break;
         case TypeVarChar:
-            groupMap = new unordered_map<string, vector<unsigned>>();
+            groupMapPtr = new unordered_map<string, AggregateInfo>();
             break;
     }
 }
@@ -539,7 +539,7 @@ RC Aggregate::getNextTuple(void *data) {
 }
 
 RC Aggregate::getNextUngroupedTuple(void *data) {
-    float *aggAttrValuePtr;
+    float *aggAttrValuePtr = new float;
     float aggAttrValue;
     void *originalData = malloc(PAGE_SIZE);
 
@@ -549,7 +549,7 @@ RC Aggregate::getNextUngroupedTuple(void *data) {
     while (iter->getNextTuple(originalData) != QE_EOF) {
         if (!getAttributeData(originalData, originalAttrs, aggAttr, aggAttrValuePtr)) { return FAIL; }
         if (aggAttr.type == TypeInt) {
-            aggAttrValue = (float)(*((int *)aggAttrValuePtr));
+            aggAttrValue = (float) (*((int *) aggAttrValuePtr));
         } else {
             aggAttrValue = *aggAttrValuePtr;
         }
@@ -559,11 +559,44 @@ RC Aggregate::getNextUngroupedTuple(void *data) {
     reachEOF = true;
 
     free(originalData);
+    delete(aggAttrValuePtr);
     return SUCCESS;
 }
 
 RC Aggregate::getNextGroupedTuple(void *data) {
+    float *aggAttrValuePtr = new float;
+    void *groupAttrValuePtr = malloc(PAGE_SIZE);
+    float aggAttrValue;
+    void *originalData = malloc(PAGE_SIZE);
+    AggregateInfo aggInfoToBeAdded;
 
+    if (reachEOF) {
+        return QE_EOF;
+    }
+    if (!scanned) {
+        while (iter->getNextTuple(originalData) != QE_EOF) {
+            if (!getAttributeData(originalData, originalAttrs, aggAttr, aggAttrValuePtr)) { return FAIL; }
+            if (!getAttributeData(originalData, originalAttrs, groupAttr, groupAttrValuePtr)) { return FAIL; }
+
+            if (aggAttr.type == TypeInt) {
+                aggAttrValue = (float) (*((int *) aggAttrValuePtr));
+            } else {
+                aggAttrValue = *aggAttrValuePtr;
+            }
+
+            aggInfoToBeAdded = getAggregateIfoFromGroupMap((byte *) groupAttrValuePtr);
+            aggInfoToBeAdded.update(aggAttrValue);
+            putAggreateInfoToGroupMap((byte *) groupAttrValuePtr, aggInfoToBeAdded);
+        }
+        scanned = true;
+    }
+    prepareNextKeyValueFromGroupMap(groupAttrValuePtr, aggregateInfo);
+    prepareGroupedTuple(groupAttrValuePtr, data);
+
+    free(originalData);
+    free(groupAttrValuePtr);
+    delete (aggAttrValuePtr);
+    return SUCCESS;
 }
 
 void Aggregate::getAttributes(vector<Attribute> &attrs) const {
@@ -589,12 +622,32 @@ void Aggregate::getAttributes(vector<Attribute> &attrs) const {
 RC Aggregate::prepareUngroupedTuple(void *data) {
     memset(data, 0, 1); // set nulls indicator
     int offset = 1;
-    *((float *)((byte *) data + offset)) = aggregateInfo.getAggreteValue(aggOp);
+    *((float *) ((byte *) data + offset)) = aggregateInfo.getAggreteValue(aggOp);
     return SUCCESS;
 }
 
-RC Aggregate::prepareGroupedTuple(void *data) {
+RC Aggregate::prepareGroupedTuple(void *groupAttrValuePtr, void *data) {
+    memset(data, 0, 1); // set nulls indicator
+    int offset = 1;
 
+    switch (groupAttr.type) {
+        case TypeInt:
+        case TypeReal: {
+            memcpy((byte *) data + offset, groupAttrValuePtr, 4);
+            offset += 4;
+            break;
+        }
+        case TypeVarChar: {
+            uint32_t length = *((uint32_t *) ((byte *) groupAttrValuePtr));
+            memcpy((byte *) data + offset, (byte *) groupAttrValuePtr, 4);
+            offset += 4;
+            memcpy((byte *) data + offset, (byte *) groupAttrValuePtr + 4, length);
+            offset += length;
+            break;
+        }
+    }
+    *((float *) ((byte *) data + offset)) = aggregateInfo.getAggreteValue(aggOp);
+    return SUCCESS;
 }
 
 void Aggregate::prepareUnGroupedAttrs() {
@@ -619,6 +672,119 @@ string Aggregate::getAggregateOpName(AggregateOp aggOp) const {
         case AVG:
             return "AVG";
     }
+}
+
+RC Aggregate::findAggregateIfoFromGroupMap(const byte *key) {
+    unsigned count;
+    switch (groupAttr.type) {
+        case TypeInt: {
+            auto &groupMap = *((unordered_map<int32_t, AggregateInfo> *) groupMapPtr);
+            count = groupMap.count(*(const int32_t *) key);
+            break;
+        }
+        case TypeReal: {
+            auto &groupMap = *((unordered_map<float, AggregateInfo> *) groupMapPtr);
+            count = groupMap.count(*(const float *) key);
+            break;
+        }
+        case TypeVarChar: {
+            auto &groupMap = *((unordered_map<string, AggregateInfo> *) groupMapPtr);
+            uint32_t length = *((const uint32_t *) key);
+            count = groupMap.count(string(key + 4, length));
+            break;
+        }
+    }
+    if (count == 0) {
+        return FAIL;
+    }
+    return SUCCESS;
+}
+
+RC Aggregate::putAggreateInfoToGroupMap(const byte *key, const AggregateInfo &value) {
+    switch (groupAttr.type) {
+        case TypeInt: {
+            auto &groupMap = *((unordered_map<int32_t, AggregateInfo> *) groupMapPtr);
+            groupMap[*(const int32_t *) key] = value;
+            break;
+        }
+        case TypeReal: {
+            auto &groupMap = *((unordered_map<float, AggregateInfo> *) groupMapPtr);
+            groupMap[*(const float *) key] = value;
+            break;
+        }
+        case TypeVarChar: {
+            auto &groupMap = *((unordered_map<string, AggregateInfo> *) groupMapPtr);
+            uint32_t length = *((const uint32_t *) key);
+            groupMap[string(key + 4, length)] = value;
+            break;
+        }
+    }
+    return SUCCESS;
+}
+
+AggregateInfo Aggregate::getAggregateIfoFromGroupMap(const byte *keyPtr) {
+    AggregateInfo aggregateInfo;
+    switch (groupAttr.type) {
+        case TypeInt: {
+            int32_t key = *(const int32_t *) keyPtr;
+            auto &groupMap = *((unordered_map<int32_t, AggregateInfo> *) groupMapPtr);
+            return groupMap.count(key) > 0 ? groupMap[key] : aggregateInfo;
+        }
+        case TypeReal: {
+            float key = *(const float *) keyPtr;
+            auto &groupMap = *((unordered_map<float, AggregateInfo> *) groupMapPtr);
+            return groupMap.count(key) > 0 ? groupMap[key] : aggregateInfo;
+        }
+        case TypeVarChar: {
+            auto &groupMap = *((unordered_map<string, AggregateInfo> *) groupMapPtr);
+            uint32_t length = *((const uint32_t *) keyPtr);
+            string key = string(keyPtr + 4, length);
+            return groupMap.count(key) > 0 ? groupMap[key] : aggregateInfo;
+        }
+    }
+}
+
+RC Aggregate::prepareNextKeyValueFromGroupMap(void *groupAttrValuePtr, AggregateInfo &aggregateInfo) {
+    switch (groupAttr.type) {
+        case TypeInt: {
+            auto &groupMap = *((unordered_map<int32_t, AggregateInfo> *) groupMapPtr);
+            auto it = groupMap.begin();
+            if (groupMap.size() == 1) {
+                reachEOF = true;
+            }
+            auto groupAttrValue = it->first;
+            *((int32_t *) groupAttrValuePtr) = groupAttrValue;
+            aggregateInfo = it->second;
+            groupMap.erase(it);
+            break;
+        }
+        case TypeReal: {
+            auto &groupMap = *((unordered_map<float, AggregateInfo> *) groupMapPtr);
+            auto it = groupMap.begin();
+            if (groupMap.size() == 1) {
+                reachEOF = true;
+            }
+            auto groupAttrValue = it->first;
+            *((float *) groupAttrValuePtr) = groupAttrValue;
+            aggregateInfo = it->second;
+            groupMap.erase(it);
+            break;
+        }
+        case TypeVarChar: {
+            auto &groupMap = *((unordered_map<string, AggregateInfo> *) groupMapPtr);
+            auto it = groupMap.begin();
+            if (groupMap.size() == 1) {
+                reachEOF = true;
+            }
+            auto groupAttrValue = it->first;
+            *((uint32_t *) groupAttrValuePtr) = groupAttrValue.size();
+            strcpy((char *) groupAttrValuePtr + 4, groupAttrValue.c_str());
+            aggregateInfo = it->second;
+            groupMap.erase(it);
+            break;
+        }
+    }
+    return SUCCESS;
 }
 
 /** functions for general use **/

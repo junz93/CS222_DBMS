@@ -376,8 +376,6 @@ RC RelationManager::insertCatalogTuple(const string &tableName, const void *data
     if (rbfm->insertRecord(fileHandle, recordDescriptor, data, rid) == FAIL) {
         return FAIL;
     }
-    // TODO: to be deleted
-    rbfm->printRecord(recordDescriptor, data);
 
     rbfm->closeFile(fileHandle);
 

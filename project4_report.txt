@@ -9,8 +9,11 @@ gcc version : 4.8.5
 
 
 2. Catalog information about Index
-// TODO: complete this section
 - Show your catalog information about an index (tables, columns). 
+Maintain a catalog file named with "Indices", below are the schema for three catalog files"
+Tables (table-id:int, table-name:varchar(50), file-name:varchar(50), system-flag:int)
+Columns(table-id:int, column-name:varchar(50), column-type:int, column-length:int, column-position:int, system-flag:int)
+Indices(index-name: varchar(50), attribute-name: varchar(50), table-name: varchar(50), system-flag:int)
 
 
 3. Block Nested Loop Join (If you have implemented this feature)
@@ -41,8 +44,10 @@ gcc version : 4.8.5
 
 
 6. Aggregation
-// TODO: complete this section
 - Describe how your aggregation (basic, group-based hash) works.
+1) For basic aggregation, maintain a struct including all running information while performing a scan using the input iterator. Get the final aggregation value according to the aggregate operation and then return data using required format. In addition, the attribute name should be modified when calling getAttributes.
+
+2) For goup based aggregation. Maintain a hash map whose key is group value and the value is the running information, perform one scan and update the map in the mean time. Then for each getNextTuple, pop one pair from the hash map and get the value to be returned.
 
 
 7. Implementation Detail
